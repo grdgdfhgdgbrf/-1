@@ -4,12 +4,11 @@ import time
 import random
 import aiohttp
 import io
+import json
 from datetime import datetime, timedelta
 from typing import Dict, Optional, List, Any
 from dataclasses import dataclass, field
 from enum import Enum
-import json
-import hashlib
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 from telegram.ext import (
@@ -18,7 +17,8 @@ from telegram.ext import (
     MessageHandler,
     CallbackQueryHandler,
     ContextTypes,
-    filters
+    filters,
+    ConversationHandler
 )
 
 # Настройка логирования
@@ -31,6 +31,9 @@ logger = logging.getLogger(__name__)
 # ==================== КОНФИГУРАЦИЯ ====================
 BOT_TOKEN = "8359617420:AAEh9jNsRtQ2F3jshJ0rgBWMIAH2MHdvCxc"
 
+# Состояния для создания своей темы
+WAITING_TOPIC_NAME, WAITING_TOPIC_POSTS, WAITING_TOPIC_QUERIES = range(3)
+
 # ==================== ТАРИФЫ ====================
 TARIFFS = {
     "free": {
@@ -38,6 +41,7 @@ TARIFFS = {
         "max_channels": 3,
         "min_interval": 60,
         "max_posts_per_day": 100,
+        "image_size": "medium",
         "features": ["✅ 3 канала", "✅ Интервал от 1 мин", "✅ 100 постов/день", "✅ Текстовые посты"]
     },
     "basic": {
@@ -45,205 +49,139 @@ TARIFFS = {
         "max_channels": 10,
         "min_interval": 30,
         "max_posts_per_day": 500,
-        "features": ["✅ 10 каналов", "✅ Интервал от 30 сек", "✅ 500 постов/день", "✅ Картинки", "✅ Репосты"]
+        "image_size": "large",
+        "features": ["✅ 10 каналов", "✅ Интервал от 30 сек", "✅ 500 постов/день", "✅ Картинки", "✅ Свои темы"]
     },
     "pro": {
         "name": "💎 PRO",
-        "max_channels": 50,
+        "max_channels": 30,
         "min_interval": 10,
-        "max_posts_per_day": 5000,
-        "features": ["✅ 50 каналов", "✅ Интервал от 10 сек", "✅ 5000 постов/день", "✅ HD картинки", 
-                    "✅ Поиск картинок", "✅ Видео", "✅ Репосты", "✅ ИИ контент", "✅ Своя тема"]
+        "max_posts_per_day": 2000,
+        "image_size": "hd",
+        "features": ["✅ 30 каналов", "✅ Интервал от 10 сек", "✅ 2000 постов/день", "✅ HD картинки", 
+                    "✅ Поиск картинок", "✅ Видео", "✅ Свои темы", "✅ Репосты"]
     }
 }
-
-# ==================== ТЕМЫ С УНИКАЛЬНЫМИ ПОСТАМИ ====================
-# Хранилище использованных постов
-used_posts = {}
-
-def get_unique_post(topic_key: str, topic_data: dict) -> str:
-    """Получить уникальный пост, который не повторялся"""
-    posts = topic_data.get("posts", [])
-    if not posts:
-        return "Новый пост скоро появится!"
-    
-    # Инициализируем список использованных постов для этой темы
-    if topic_key not in used_posts:
-        used_posts[topic_key] = []
-    
-    # Если все посты использованы, сбрасываем
-    if len(used_posts[topic_key]) >= len(posts):
-        used_posts[topic_key] = []
-    
-    # Выбираем неиспользованный пост
-    available_posts = [p for i, p in enumerate(posts) if i not in used_posts[topic_key]]
-    if not available_posts:
-        available_posts = posts
-    
-    post = random.choice(available_posts)
-    post_index = posts.index(post)
-    used_posts[topic_key].append(post_index)
-    
-    return post
 
 # ==================== НОВЫЕ ТЕМЫ ====================
 TOPICS = {
     "nft": {
         "name": "🎨 NFT Искусство",
         "emoji": "🎨",
-        "image_queries": ["nft art", "digital art", "crypto art", "nft collection"],
-        "post_sizes": ["Короткий", "Средний", "Полный"],
         "posts": [
-            "🖼 **Топ-10 самых дорогих NFT 2025**\n\n1. «Everydays» - $69 млн\n2. «Clock» - $52 млн\n3. «Human One» - $28 млн\n4. «CryptoPunk #5822» - $23 млн\n5. «Beeple» - $15 млн\n\n🔥 NFT рынок продолжает расти!\n\n#nft #криптоискусство #цифровоеискусство",
-            "🎨 **Как создать свой NFT за 5 минут**\n\nПошаговая инструкция:\n1️⃣ Выберите изображение/видео\n2️⃣ Зарегистрируйтесь на OpenSea\n3️⃣ Загрузите файл\n4️⃣ Настройте роялти (до 10%)\n5️⃣ Выставьте на продажу\n\n💰 Первые продажи уже сегодня!\n\n#nft #каксоздатьnft #заработок",
-            "🚀 **Почему NFT не умрут**\n\n3 причины:\n✅ Цифровая собственность\n✅ Уникальность и редкость\n✅ Пассивный доход от роялти\n\nИнвестиции в NFT - это будущее!\n\n#nft #инвестиции #криптовалюта",
-            "🌟 **Самые перспективные NFT коллекции 2025**\n\n• Bored Ape Yacht Club\n• CryptoPunks\n• Azuki\n• Pudgy Penguins\n• Moonbirds\n\nВложения окупились за 3 месяца!\n\n#nftколлекции #топnft #инвестиции",
-            "💎 **Секреты успешных NFT проектов**\n\nЧто делает проект вирусным:\n✔️ Уникальный дизайн\n✔️ Активное комьюнити\n✔️ Реальные utility\n✔️ Маркетинг в соцсетях\n\nСоздайте свой успешный проект!\n\n#nftпроекты #крипто #успех"
-        ]
+            "🎨 **ТОП-5 NFT, которые взлетят в 2025**\n\nBored Ape, CryptoPunks, Azuki - какие NFT стоит купить уже сейчас? Аналитика и прогнозы от экспертов.\n\n#nft #искусство #токены",
+            "🖼 **Как создать и продать свой NFT за $10,000**\n\nПошаговое руководство для художников и дизайнеров. Платформы, комиссии, продвижение.\n\n#nftart #токены #заработок",
+            "🌐 **Цифровое искусство: новая эра**\n\nBeeple продал NFT за $69 миллионов. Почему коллекционеры скупают пиксели за миллионы?\n\n#nft #art #крипта",
+            "🔥 **NFT-коллекции, которые взорвали рынок**\n\nОбзор самых дорогих и популярных коллекций. Инвестируйте с умом!\n\n#nftcollection #инвестиции #крипта",
+            "🏺 **NFT в реальной жизни**\n\nКак токены меняют мир искусства, музыки и недвижимости. Реальные кейсы использования.\n\n#nft #реальность #технологии"
+        ],
+        "image_queries": ["nft art", "crypto art", "digital art", "nft collection", "rare nft"]
     },
     "telegram": {
         "name": "📱 Telegram",
         "emoji": "📱",
-        "image_queries": ["telegram", "telegram logo", "messenger", "tg"],
-        "post_sizes": ["Короткий", "Средний", "Полный"],
         "posts": [
-            "🚀 **Telegram обновился до версии 10.0**\n\nЧто нового:\n• Автоматический перевод сообщений\n• Бизнес-аккаунты\n• Улучшенные стикеры\n• Групповые видеозвонки до 1000 человек\n\nОбновляйтесь прямо сейчас!\n\n#telegram #обновление #мессенджер",
-            "💰 **Как заработать в Telegram 2025**\n\nТоп-5 способов:\n1️⃣ Реклама в каналах\n2️⃣ Платные подписки\n3️⃣ Свой бот-магазин\n4️⃣ Партнерские программы\n5️⃣ Продажа авторских курсов\n\n🔥 Реальные деньги уже сегодня!\n\n#telegram #заработок #бизнес",
-            "🤖 **Топ-10 полезных Telegram ботов**\n\n• @vote - опросы\n• @image_search_bot - поиск фото\n• @SaveVideoBot - загрузка видео\n• @utubebot - YouTube в TG\n• @weather_bot - погода\n\n😍 Бесплатно и без рекламы!\n\n#telegramботы #полезное #лайфхак",
-            "📈 **Как раскрутить Telegram канал до 100к**\n\nСтратегия роста:\n📊 Регулярный качественный контент\n🤝 Взаимопиар с другими каналами\n💰 Таргетированная реклама\n🎁 Конкурсы и розыгрыши\n\n🏆 Результат через 3 месяца!\n\n#телеграм #раскрутка #продвижение",
-            "🔒 **Секретные фишки Telegram**\n\n📱 Скрытые функции:\n• Пересылка с отключенным форвардом\n• Самоуничтожающиеся фото\n• Скрытый номер телефона\n• Папки с чатами\n\n😎 Станьте экспертом Telegram!\n\n#телеграмсекреты #фишки #мессенджер"
-        ]
+            "🚀 **Как раскрутить Telegram канал до 100,000 подписчиков**\n\nРеальная стратегия 2025: реклама, взаимопиар, чат-боты. Никакой магии - только работающие методы.\n\n#telegram #продвижение #каналы",
+            "🤖 **Топ-10 ботов для Telegram, которые облегчат жизнь**\n\nБоты для работы, учебы, развлечений и бизнеса. Список обязательных к установке.\n\n#telegramботы #полезное #автоматизация",
+            "💎 **Монетизация Telegram канала: от 0 до $5000 в месяц**\n\nКак зарабатывать на своем канале: реклама, подписки, товары. Реальные цифры.\n\n#монетизация #telegram #заработок",
+            "📊 **Аналитика Telegram каналов**\n\nКак отслеживать статистику, конкурентов и растить аудиторию. Лучшие сервисы.\n\n#аналитика #telegram #статистика",
+            "🎯 **Полезные каналы для предпринимателей**\n\nТоп-50 Telegram каналов, которые стоит подписаться. Бизнес, маркетинг, инсайты.\n\n#telegram #бизнес #полезныессылки"
+        ],
+        "image_queries": ["telegram logo", "telegram app", "telegram channel", "social media", "messenger"]
     },
     "crypto": {
         "name": "₿ Криптовалюта",
         "emoji": "₿",
-        "image_queries": ["cryptocurrency", "bitcoin", "blockchain", "crypto trading"],
-        "post_sizes": ["Короткий", "Средний", "Полный"],
         "posts": [
-            "₿ **Биткоин обновил исторический максимум**\n\n💰 BTC достиг $150,000\n📈 Рост на 300% за год\n🔮 Прогноз на 2026: $250,000\n\nПора инвестировать!\n\n#биткоин #криптовалюта #btc",
-            "📊 **Топ-10 альткоинов для инвестиций 2025**\n\n1️⃣ Ethereum - $10,000\n2️⃣ Solana - $500\n3️⃣ Cardano - $3\n4️⃣ Polkadot - $50\n5️⃣ Chainlink - $100\n\n🚀 Потенциал роста до 1000%!\n\n#альткоины #инвестиции #крипта",
-            "💎 **Как заработать на крипте новичку**\n\nСтратегии:\n✅ Покупка и хранение (HODL)\n✅ Майнинг (ASIC, GPU)\n✅ Стейкинг (6-20% годовых)\n✅ Трейдинг\n\n💰 Начните с $100!\n\n#крипта #заработок #новичкам",
-            "🚨 **Срочно! Биткоин-киты активизировались**\n\n🐋 Крупные игроки скупают BTC\n📉 Ожидайте резкий рост\n🎯 Цель: $200,000\n\nНе упустите момент!\n\n#биткоин #аналитика #криптановости",
-            "🔮 **Прогноз крипторынка 2026**\n\nПо мнению экспертов:\n• BTC: $250,000-300,000\n• ETH: $15,000-20,000\n• Общая капитализация: $10 трлн\n\nГотовьте кошельки!\n\n#прогноз #криптовалюта #будущее"
-        ]
+            "₿ **Биткоин $200,000: реальность 2025**\n\nПрогнозы аналитиков, новости регуляций, куда движется рынок. Инвестируйте с умом.\n\n#биткоин #криптовалюта #прогнозы",
+            "📈 **Альткоины, которые дадут 100x в 2025**\n\nТоп-10 перспективных монет: Solana, Avalanche, Arbitrum. Почему они выстрелят?\n\n#альткоины #крипта #инвестиции",
+            "💰 **Как заработать на крипте без вложений**\n\nAirdrop, тестнеты, рефералы - реальные способы заработать свои первые монеты.\n\n#крипта #заработок #airdrop",
+            "🔒 **Как защитить свою крипту от хакеров**\n\nHardware кошельки, двухфакторка, безопасность. Полное руководство.\n\n#безопасность #криптокошелек #хранение",
+            "🚀 **DeFi и стейкинг: пассивный доход 20-50% годовых**\n\nКак получать проценты на свои токены. Лучшие протоколы и стратегии.\n\n#defi #стейкинг #пассивныйдоход"
+        ],
+        "image_queries": ["bitcoin", "cryptocurrency", "blockchain", "trading crypto", "mining"]
     },
-    "defi": {
-        "name": "💎 DeFi",
-        "emoji": "💎",
-        "image_queries": ["defi", "decentralized finance", "blockchain finance"],
-        "post_sizes": ["Короткий", "Средний", "Полный"],
+    "aitop": {
+        "name": "🤖 Искусственный Интеллект",
+        "emoji": "🤖",
         "posts": [
-            "💰 **Лучшие DeFi протоколы для пассивного дохода**\n\n• Uniswap - до 50% APY\n• Aave - до 30% APY\n• Curve - до 40% APY\n• Compound - до 25% APY\n\n💸 Зарабатывайте на своих криптоактивах!\n\n#defi #пассивныйдоход #крипта",
-            "🌊 **Что такое Yield Farming?**\n\nСтратегия получения дохода:\n1️⃣ Предоставьте ликвидность\n2️⃣ Получите LP токены\n3️⃣ Застейкайте их\n4️⃣ Получайте до 100% годовых\n\n🚀 Ваши деньги работают за вас!\n\n#yieldfarming #defi #заработок",
-            "🔒 **Безопасность в DeFi**\n\nКак не потерять деньги:\n✔️ Используйте проверенные протоколы\n✔️ Диверсифицируйте средства\n✔️ Храните ключи отдельно\n✔️ Следите за новостями\n\n💡 Умные инвестиции - безопасные инвестиции!\n\n#defiбезопасность #крипта #советы",
-            "📊 **Топ-5 DeFi токенов 2025**\n\n1. UNI - лидер DEX\n2. AAVE - кредитование\n3. MKR - стейблкоины\n4. CRV - стейблсвапы\n5. SNX - синтетика\n\n📈 Потенциал роста огромен!\n\n#defiтокены #инвестиции #крипта",
-            "🎯 **Как получить майнинг ликвидности**\n\nПошаговый план:\n• Ищите новые проекты\n• Входите на ранних этапах\n• Предоставляйте LP\n• Собирайте токены\n• Фиксируйте прибыль\n\n💰 Пассивный доход от $1000/месяц!\n\n#майнингликвидности #defi #заработок"
-        ]
+            "🤖 **ChatGPT 5 уже здесь: что нового?**\n\nНейросеть научилась создавать видео, программировать и решать научные задачи. Обзор новых возможностей.\n\n#нейросети #ии #chatgpt",
+            "🎨 **Midjourney V7: AI-художник создает шедевры**\n\nКак создавать фотореалистичные изображения с помощью нейросетей. Промпты для новичков.\n\n#midjourney #нейросети #искусство",
+            "💻 **Как программировать с помощью AI и зарабатывать**\n\nGithub Copilot, Claude, DeepSeek - ваш персональный ассистент. Реальные кейсы.\n\n#aprogramming #нейросети #заработок",
+            "🎥 **Sora от OpenAI: видео создается из текста**\n\nРеволюция в видеопроизводстве. Генерация 4K видео по описанию. Возможности и ограничения.\n\n#sora #нейросети #видео",
+            "🧠 **ИИ-инструменты для бизнеса и жизни**\n\n50 нейросетей, которые упростят работу и сэкономят время. Лучшие сервисы 2025.\n\n#нейросети #инструменты #бизнес"
+        ],
+        "image_queries": ["artificial intelligence", "ai robot", "chatgpt", "machine learning", "ai brain"]
     },
-    "web3": {
-        "name": "🌐 Web3",
-        "emoji": "🌐",
-        "image_queries": ["web3", "blockchain", "decentralized web", "web3 technology"],
-        "post_sizes": ["Короткий", "Средний", "Полный"],
+    "nftart": {
+        "name": "🖼 NFT Коллекции",
+        "emoji": "🖼",
         "posts": [
-            "🌍 **Web3: Интернет будущего уже здесь**\n\nЧто изменится:\n• Децентрализация данных\n• Владельцы контента\n• Токенизация всего\n• DAO управление\n\n✨ Станьте частью новой эры!\n\n#web3 #будущее #технологии",
-            "🆔 **Децентрализованные идентификаторы (DID)**\n\nВаша цифровая личность:\n✔️ Полный контроль данных\n✔️ Без посредников\n✔️ Безопасно и приватно\n✔️ Работает во всем мире\n\n🌐 Ваши данные - ваши правила!\n\n#web3 #did #блокчейн",
-            "🏛️ **DAO: компании без боссов**\n\nКак работают децентрализованные организации:\n• Управление через голосование\n• Прозрачные финансы\n• Смарт-контракты\n• Общая казна\n\n💎 Будущее корпораций уже здесь!\n\n#dao #web3 #децентрализация",
-            "🎮 **Web3 игры: Play-to-Earn 2.0**\n\nТоп проекты 2025:\n• Axie Infinity\n• The Sandbox\n• Decentraland\n• Illuvium\n• Gala Games\n\n💰 Играй и зарабатывай реальные деньги!\n\n#web3игры #p2e #заработок",
-            "📱 **Как войти в Web3 сегодня**\n\nПошаговый гайд:\n1️⃣ Установите MetaMask\n2️⃣ Купите немного ETH\n3️⃣ Исследуйте dApps\n4️⃣ Получите ENS домен\n\n🚀 Не отставайте от прогресса!\n\n#web3 #гайд #блокчейн"
-        ]
+            "🖼 **Самые дорогие NFT в истории**\n\nТоп-10 продаж: Beeple, Pak, XCOPY. Почему эти пиксели стоят миллионы?\n\n#nftart #коллекции #рекорды",
+            "🎭 **Pudgy Penguins: как пингвины покорили мир**\n\nИстория взлета коллекции, награды, коллаборации с крупными брендами.\n\n#pudgypenguins #nft #историяуспеха",
+            "👾 **Киберпанк в NFT: тренды и лучшие проекты**\n\nКиберпанк эстетика в цифровом искусстве. Обзор лучших проектов и коллекций.\n\n#киберпанк #nft #искусство",
+            "🎨 **Как создать свою NFT коллекцию**\n\nГенерация 10,000 уникальных изображений, смарт-контракты, размещение на биржах.\n\n#создатьnft #токены #искусство",
+            "🏆 **Azuki: история успеха японского NFT**\n\nКак аниме-стиль покорил рынок. Секреты успеха и дорожная карта.\n\n#azuki #nft #аниме"
+        ],
+        "image_queries": ["nft collection", "cryptopunk", "bored ape", "digital collectible", "rare nft art"]
     },
-    "memes": {
-        "name": "😄 Мемы Крипта",
-        "emoji": "😄",
-        "image_queries": ["crypto meme", "bitcoin meme", "dogecoin", "memecoin"],
-        "post_sizes": ["Короткий", "Средний", "Полный"],
-        "posts": [
-            "🐕 **Dogecoin взлетел на 500%**\n\nИлон Маск снова твитнул про DOGE! Мемкоины бессмертны. Кто купил на дне? 🚀\n\n#dogecoin #мемкоины #илонмаск",
-            "🪙 **Памятка криптоинвестора**\n\nКогда BTC падает: «Купи дешевле»\nКогда BTC растет: «Купи дороже»\nРезультат: денег нет, но вы держитесь 😂\n\n#криптомемы #биткоин #юмор",
-            "🐸 **Pepe вернулся? PEPE вырос на 1000%**\n\nИнтернет помнит! Лягушонок снова в деле. Успели заскочить? 🐸🚀\n\n#pepe #мемкоины #крипта",
-            "💎 **Бриллиантовые ручки**\n\nКогда весь рынок падает, а вы HODL:\n«Бриллиантовые руки не продают на дне»\n😎 А герои не сдаются!\n\n#hodl #бриллиантовыеручки #крипта",
-            "🎢 **Американские горки биткоина**\n\nКупил на хае, продал на дне\nПеревел на биржу, забыл пароль\nНашел, увидел +1000%\n\nОбычный день криптоинвестора 😅\n\n#биткоин #криптоюмор #мемы"
-        ]
-    },
-    "blockchain": {
-        "name": "⛓️ Блокчейн",
-        "emoji": "⛓️",
-        "image_queries": ["blockchain", "blockchain technology", "distributed ledger"],
-        "post_sizes": ["Короткий", "Средний", "Полный"],
-        "posts": [
-            "⛓️ **Что такое блокчейн простыми словами**\n\nПредставьте общую тетрадь, которую нельзя подделать. Каждая запись связана с предыдущей и хранится у миллионов людей.\n\n✅ Прозрачно\n✅ Безопасно\n✅ Нельзя изменить\n\n#блокчейн #технологии #обучение",
-            "🔗 **Как работают смарт-контракты**\n\nЭто цифровые контракты, которые исполняются автоматически при выполнении условий.\n\nПример: Отправил деньги → получил товар\n\nНикаких посредников и обмана!\n\n#смартконтракты #блокчейн #децентрализация",
-            "⚡ **Масштабируемость блокчейна: решения 2025**\n\n• Sharding (фрагментация)\n• Layer 2 решения\n• Sidechains\n• Новые консенсусы\n\n🚀 Блокчейн готов к миллиарду пользователей!\n\n#масштабируемость #блокчейн #технологии",
-            "🔐 **Криптография в блокчейне**\n\nКак обеспечивается безопасность:\n• Хэширование SHA-256\n• Асимметричное шифрование\n• Цифровые подписи\n• Консенсус Proof-of-Work\n\n💰 Ваши средства под надежной защитой!\n\n#криптография #безопасность #блокчейн",
-            "🌿 **Экологичный блокчейн**\n\nРешение проблемы энергопотребления:\n• Proof-of-Stake (99% энергии)\n• Зеленый майнинг\n• Углеродная нейтральность\n\n💚 Сохраняем планету вместе!\n\n#эко #блокчейн #зеленый"
-        ]
-    },
-    "gaming": {
-        "name": "🎮 GameFi",
+    "cryptogaming": {
+        "name": "🎮 Crypto Gaming",
         "emoji": "🎮",
-        "image_queries": ["gamefi", "crypto gaming", "play to earn", "nft game"],
-        "post_sizes": ["Короткий", "Средний", "Полный"],
         "posts": [
-            "🎮 **Топ-10 GameFi проектов 2025**\n\n1. Axie Infinity\n2. The Sandbox\n3. Decentraland\n4. Illuvium\n5. Star Atlas\n6. Gala Games\n7. My Neighbor Alice\n8. Big Time\n9. Heroes of Mavia\n10. Gods Unchained\n\n💰 Зарабатывай играя!\n\n#gamefi #playtoearn #криптоигры",
-            "💎 **Как заработать $1000 в месяц в Play-to-Earn**\n\nСтратегия:\n• Выберите проект\n• Изучите механику\n• Инвестируйте время\n• Повышайте уровень\n• Продавайте токены\n\n🎮 Игры приносят реальные деньги!\n\n#playtoearn #gamefi #заработок",
-            "🏆 **Самые дорогие игровые NFT**\n\n• Axie - $1.5 млн\n• The Sandbox LAND - $500k\n• CryptoKitties - $390k\n• Gods Unchained - $250k\n\n🖼 Ваши скины и персонажи - это активы!\n\n#геймингnft #крипто #игры",
-            "⚡ **Будущее GameFi**\n\nТренды 2025-2026:\n• AAA проекты от крупных студий\n• VR и AR интеграция\n• Кроссплатформенность\n• Реальная экономика\n\n🎮 Игровая индустрия меняется!\n\n#gamefi #будущее #криптоигры",
-            "🆓 **Бесплатные Play-to-Earn игры**\n\nНачните без вложений:\n• Alien Worlds\n• Splinterlands\n• Gods Unchained\n• Upland\n• Blankos Block Party\n\n💰 Зарабатывайте с нуля!\n\n#freeplaytoearn #gamefi #заработок"
-        ]
-    },
-    "metaverse": {
-        "name": "🌌 Метавселенная",
-        "emoji": "🌌",
-        "image_queries": ["metaverse", "virtual reality", "vr world", "digital world"],
-        "post_sizes": ["Короткий", "Средний", "Полный"],
-        "posts": [
-            "🌍 **Топ-5 метавселенных 2025**\n\n1. The Sandbox\n2. Decentraland\n3. Somnium Space\n4. Voxels\n5. Wilder World\n\n🚀 Покупайте землю сейчас - цены вырастут!\n\n#метавселенная #thesandbox #decentraland",
-            "🏠 **Инвестиции в виртуальную недвижимость**\n\nЦены на LAND в 2025:\n• Sandbox: $50,000+\n• Decentraland: $30,000+\n• Somnium: $20,000+\n\n📈 Рост 1000% за год!\n\n#виртуальнаянедвижимость #метавселенная #инвестиции",
-            "🕶️ **Как начать жить в метавселенной**\n\nГайд для начинающих:\n1️⃣ Купите VR шлем\n2️⃣ Создайте аватар\n3️⃣ Выберите платформу\n4️⃣ Приобретите землю\n5️⃣ Зарабатывайте на аренде\n\n💫 Добро пожаловать в будущее!\n\n#метавселенная #vr #будущее",
-            "💼 **Бизнес в метавселенной**\n\nИдеи для заработка:\n• Виртуальная аренда\n• NFT галереи\n• Проведение мероприятий\n• Внутриигровая экономика\n\n💰 Реальный бизнес в виртуальном мире!\n\n#бизнесвметавселенной #заработок",
-            "🔮 **Будущее метавселенных**\n\nЧто нас ждет к 2030:\n• Полное погружение через нейроинтерфейсы\n• Общая экономика\n• Виртуальные рабочие места\n• Цифровое гражданство\n\n🌌 Это уже реальность!\n\n#метавселенная #будущее #технологии"
-        ]
-    },
-    "staking": {
-        "name": "💰 Стейкинг",
-        "emoji": "💰",
-        "image_queries": ["crypto staking", "staking rewards", "passive income crypto"],
-        "post_sizes": ["Короткий", "Средний", "Полный"],
-        "posts": [
-            "💰 **Лучшие монеты для стейкинга 2025**\n\n• Ethereum - 5% APY\n• Solana - 7% APY\n• Cardano - 5% APY\n• Polkadot - 14% APY\n• Cosmos - 17% APY\n\n💎 Пассивный доход без рисков!\n\n#стейкинг #пассивныйдоход #крипта",
-            "📊 **Сравнение доходности стейкинга**\n\nТоп-10 криптовалют:\n1. Cosmos - 17%\n2. Polkadot - 14%\n3. Solana - 7%\n4. Avalanche - 8%\n5. Polygon - 6%\n\n💸 Ваши токены работают на вас!\n\n #доходностьстейкинга #крипта",
-            "🔒 **Пошаговый гайд: как начать стейкинг**\n\n1️⃣ Купите криптовалюту\n2️⃣ Выберите кошелек (Ledger, MetaMask)\n3️⃣ Перейдите в раздел стейкинга\n4️⃣ Выберите валидатора\n5️⃣ Застейкайте токены\n\n✅ Стабильный доход от 5% годовых!\n\n#стейкинггайд #пассивныйдоход",
-            "⚠️ **Риски стейкинга и как их избежать**\n\nОсновные риски:\n• Слэшинг (штрафы)\n• Падение цены токена\n• Ликвидность (заморозка)\n• Валидаторы-мошенники\n\n💡 Диверсифицируйте и проверяйте!\n\n #рискистейкинга #безопасность",
-            "🚀 **Лучшие платформы для стейкинга**\n\nCEX (битки):\n• Binance - 20+ монет\n• Kraken - 15+ монет\n\nDeFi:\n• Lido\n• Rocket Pool\n• Aave\n\n🔐 Храните ключи на кошельках!\n\n #платформыстейкинга #defi"
-        ]
-    },
-    "airdrop": {
-        "name": "🎁 Аирдропы",
-        "emoji": "🎁",
-        "image_queries": ["crypto airdrop", "free crypto", "airdrop claim"],
-        "post_sizes": ["Короткий", "Средний", "Полный"],
-        "posts": [
-            "🎁 **Топ-10 аирдропов 2025 года**\n\nСамые ожидаемые:\n1. LayerZero - $100k+\n2. zkSync - $50k+\n3. Scroll - $30k+\n4. Starknet - $20k+\n5. Arbitrum - $15k+\n\n💰 Бесплатные токены от стартапов!\n\n#аирдропы #бесплатнокрипта #заработок",
-            "🪂 **Как получить аирдроп на $10,000**\n\nСтратегия:\n• Используйте новые протоколы\n• Делайте транзакции (~$50-100)\n• Предоставляйте ликвидность\n• Участвуйте в тестнетах\n• Будьте ранним пользователем\n\n💎 Пассивный доход с нуля!\n\n #какполучитьаирдроп #заработок",
-            "✅ **Чек-лист: Готовимся к аирдропу**\n\nДо начала:\n⚡️ Зарегистрируйте ENS\n⚡️ Пополните кошелек ($100-200)\n⚡️ Сделайте 10-20 транзакций\n⚡️ Застейкайте токены\n⚡️ Вступайте в Discord/Twitter\n\n🎯 Максимизируйте дроп!\n\n #аирдропчеклист #подготовка",
-            "⚠️ **Как отличить реальный аирдроп от скама**\n\nКрасные флаги:\n❌ Просят приватный ключ\n❌ Требуют оплату\n❌ Подозрительные ссылки\n❌ Непроверенные проекты\n\n✅ Только официальные источники!\n\n #безопасностьаирдропов #скам",
-            "📈 **Лучшие аирдропы прошлого года**\n\nИстории успеха:\n• Arbitrum - $10,000+\n• Aptos - $5,000+\n• Optimism - $3,000+\n• Blur - $20,000+\n\n💰 Вы тоже можете получить токены!\n\n #успешныеаирдропы #кейсы"
-        ]
-    },
-    "trading": {
-        "name": "📈 Трейдинг",
-        "emoji": "📈",
-        "image_queries": ["crypto trading", "trading chart", "technical analysis"],
-        "post_sizes": ["Короткий", "Средний", "Полный"],
-        "posts": [
-            "📊 **Прогноз биткоина на неделю**\n\nBTC текущий: $150,000\n• Сопротивление: $160,000\n• Поддержка: $140,000\n• Цель до конца месяца: $180,000\n\n📉 Тренд восходящий! Покупаем на откатах.\n\n #биткоинпрогноз #btc #трейдинг",
-            "💹 **Топ-5 индикаторов для прибыльной торговли**\n\n1. RSI - перекупленность/перепроданость\n2. MACD - направление тренда\n3. Bollinger Bands - волатильность\n4. Moving Averages - поддержка/сопротивление\n5. Volume - подтверждение сигналов\n\n📈 Стабильная прибыль 20% в месяц!\n\n #индикаторы #трейдинг #аналитика",
-            "🎯 **Стратегия скальпинга на 5 минут**\n\nАлгоритм:\n1️⃣ Только по тренду\n2️⃣ Тейк-профит 0.5-1%\n3️⃣ Стоп-лосс 0.3%\n4️⃣ 3-5 сделок в день\n5️⃣ Не трейдить новости\n\n💰 5-10% стабильно!\n\n #скальпинг #стратегия #трейдинг",
-            "🚨 **Сигнал: Биткоин пробил сопротивление**\n\n$150,000 - новый уровень\nСледующая цель: $200,000\n\nПоддержки:\n• $145,000\n• $140,000\n• $135,000\n\n🎯 Цель по тейку: $180,000\n\n #сигнал #биткоин #трейдинг",
-            "💡 **10 ошибок новичков в трейдинге**\n\n❌ FOMO (страх упустить)\n❌ Отсутствие стоп-лосса\n❌ Усреднение убыточных позиций\n❌ Перегрузка депозита\n❌ Трейдинг на заемные средства\n\n✅ Учитесь на ошибках других!\n\n #ошибкитрейдинга #новичкам"
-        ]
+            "🎮 **Play-to-Earn: как зарабатывать играя в 2025**\n\nAxie Infinity, Gods Unchained, The Sandbox - сколько можно заработать на криптоиграх.\n\n#playtoearn #cryptogames #заработок",
+            "🌍 **Metaverse: будущее уже здесь**\n\nDecentraland, The Sandbox, Somnium Space - покупаем землю, строим бизнес, зарабатываем.\n\n#метавселенная #nft #crypto",
+            "⚔️ **Новые криптоигры 2025: во что стоит играть**\n\nОбзор лучших проектов: Illuvium, Star Atlas, Big Time. Геймплей и экономика.\n\n#cryptogames #новинки #гейминг",
+            "💎 **Как заработать на NFT в играх**\n\nСтратегии, гайды, лучшие практики. От новичка до профи в мире криптоигр.\n\n#nftgaming #заработок #стратегии",
+            "🏆 **Турниры с призовым фондом в криптоиграх**\n\nЗарабатывай как профессионал. Расписание турниров, призы, стратегии.\n\n#киберспорт #cryptogames #турниры"
+        ],
+        "image_queries": ["crypto game", "metaverse", "play to earn", "nft game", "virtual world"]
     }
+}
+
+# ==================== ХРАНИЛИЩЕ СВОИХ ТЕМ ====================
+class CustomTopics:
+    def __init__(self):
+        self.user_topics = {}  # user_id -> {topic_name: topic_data}
+    
+    def add_topic(self, user_id: int, name: str, posts: List[str], queries: List[str]):
+        if user_id not in self.user_topics:
+            self.user_topics[user_id] = {}
+        
+        topic_key = f"custom_{name.lower().replace(' ', '_')}"
+        self.user_topics[user_id][topic_key] = {
+            "name": f"✨ {name}",
+            "emoji": "✨",
+            "posts": posts,
+            "image_queries": queries,
+            "is_custom": True
+        }
+        return topic_key
+    
+    def get_user_topics(self, user_id: int):
+        return self.user_topics.get(user_id, {})
+    
+    def get_all_topics(self, user_id: int, tariff: str):
+        all_topics = dict(TOPICS)
+        custom = self.get_user_topics(user_id)
+        all_topics.update(custom)
+        
+        # Для бесплатного тарифа ограничиваем количество тем
+        if tariff == "free":
+            # Показываем только базовые темы + 2 пользовательские
+            base_topics = list(TOPICS.keys())[:5]
+            return {k: v for k, v in all_topics.items() if k in base_topics or k in custom}
+        
+        return all_topics
+
+custom_topics_manager = CustomTopics()
+
+# ==================== РАЗМЕРЫ ИЗОБРАЖЕНИЙ ====================
+IMAGE_SIZES = {
+    "small": "400x300",
+    "medium": "800x600", 
+    "large": "1200x800",
+    "hd": "1920x1080"
 }
 
 # ==================== ХРАНИЛИЩЕ ДАННЫХ ====================
@@ -255,7 +193,8 @@ class BotData:
         self.posting_tasks = {}
         self.user_tariffs = {}
         self.daily_post_counts = {}
-        self.user_custom_topics = {}  # Свои темы пользователей
+        self.image_cache = {}
+        self.user_image_size = {}  # user_id -> size
         
     def init_user(self, user_id: int, username: str, first_name: str):
         if user_id not in self.users:
@@ -269,7 +208,7 @@ class BotData:
             self.user_tariffs[user_id] = "free"
             self.channels[user_id] = []
             self.daily_post_counts[user_id] = {"date": datetime.now().date(), "count": 0}
-            self.user_custom_topics[user_id] = {}
+            self.user_image_size[user_id] = "medium"
     
     def add_channel(self, user_id: int, channel_id: str, channel_title: str):
         tariff = self.user_tariffs.get(user_id, "free")
@@ -295,8 +234,7 @@ class BotData:
     def get_channels(self, user_id: int):
         return self.channels.get(user_id, [])
     
-    def set_auto_posting(self, channel_id: str, user_id: int, topic: str, interval: int, 
-                         post_size: str = "Средний", is_active: bool = False):
+    def set_auto_posting(self, channel_id: str, user_id: int, topic: str, interval: int, is_active: bool = False):
         self.auto_posting[channel_id] = {
             "user_id": user_id,
             "topic": topic,
@@ -305,8 +243,8 @@ class BotData:
             "last_post": datetime.now(),
             "channel_title": self.get_channel_title(user_id, channel_id),
             "include_images": True,
-            "post_size": post_size,
-            "custom_topic": None
+            "use_extended": False,
+            "topic_type": "crypto"  # тип темы
         }
         return True
     
@@ -344,30 +282,22 @@ class BotData:
         self.daily_post_counts[user_id]["count"] += 1
         return True
     
-    def add_custom_topic(self, user_id: int, topic_name: str, posts: list, image_queries: list):
-        if user_id not in self.user_custom_topics:
-            self.user_custom_topics[user_id] = {}
-        
-        topic_key = f"custom_{len(self.user_custom_topics[user_id]) + 1}"
-        self.user_custom_topics[user_id][topic_key] = {
-            "name": topic_name,
-            "emoji": "📝",
-            "posts": posts,
-            "image_queries": image_queries,
-            "post_sizes": ["Короткий", "Средний", "Полный"],
-            "is_custom": True
-        }
-        return topic_key
+    def get_image_size(self, user_id: int) -> str:
+        tariff = self.user_tariffs.get(user_id, "free")
+        size_key = TARIFFS[tariff]["image_size"]
+        return IMAGE_SIZES.get(size_key, "800x600")
 
 bot_data = BotData()
 
 # ==================== ПОИСК КАРТИНОК ====================
 class ImageFinder:
     @staticmethod
-    async def search_image(query: str):
+    async def search_image(query: str, size: str = "800x600"):
+        """Поиск картинки с нужным размером"""
         try:
+            width, height = size.split('x')
             async with aiohttp.ClientSession() as session:
-                url = f"https://source.unsplash.com/featured/1200x800/?{query}"
+                url = f"https://picsum.photos/{width}/{height}"
                 async with session.get(url) as response:
                     if response.status == 200:
                         return url
@@ -376,24 +306,25 @@ class ImageFinder:
         return None
     
     @staticmethod
-    async def get_random_image(topic: str, topic_data: dict):
-        queries = topic_data.get("image_queries", ["nature"])
+    async def get_random_image(topic: str, user_id: int):
+        """Получить случайную картинку по теме с учетом размера"""
+        size = bot_data.get_image_size(user_id)
+        
+        # Получаем все доступные темы
+        tariff = bot_data.user_tariffs.get(user_id, "free")
+        all_topics = custom_topics_manager.get_all_topics(user_id, tariff)
+        
+        topic_data = all_topics.get(topic, TOPICS.get(topic, TOPICS["nft"]))
+        queries = topic_data.get("image_queries", ["art"])
         query = random.choice(queries)
         
-        try:
-            async with aiohttp.ClientSession() as session:
-                url = f"https://picsum.photos/1200/800"
-                async with session.get(url) as response:
-                    if response.status == 200:
-                        return url
-        except:
-            return None
-        return None
+        return await ImageFinder.search_image(query, size)
 
 bot_images = ImageFinder()
 
-# ==================== АВТОПОСТИНГ ====================
+# ==================== АВТОПОСТИНГ С КАРТИНКАМИ ====================
 async def auto_posting_worker(bot, channel_id: str):
+    """Фоновый поток для автопостинга"""
     while True:
         try:
             settings = bot_data.get_auto_settings(channel_id)
@@ -404,34 +335,39 @@ async def auto_posting_worker(bot, channel_id: str):
             last_post = settings.get("last_post", datetime.now() - timedelta(days=1))
             interval_seconds = settings.get("interval", 60)
             
-            if (current_time - last_post).total_seconds() >= interval_seconds:
+            time_diff = (current_time - last_post).total_seconds()
+            
+            if time_diff >= interval_seconds:
                 topic = settings.get("topic", "nft")
-                post_size = settings.get("post_size", "Средний")
+                user_id = settings.get("user_id")
                 
-                # Получаем данные темы
-                if topic.startswith("custom_"):
-                    user_id = settings.get("user_id")
-                    topic_data = bot_data.user_custom_topics.get(user_id, {}).get(topic, {})
-                else:
-                    topic_data = TOPICS.get(topic, TOPICS["nft"])
+                # Получаем все доступные темы пользователя
+                tariff = bot_data.user_tariffs.get(user_id, "free")
+                all_topics = custom_topics_manager.get_all_topics(user_id, tariff)
                 
-                # Получаем уникальный пост
-                if topic_data:
-                    post_text = get_unique_post(topic, topic_data)
+                topic_data = all_topics.get(topic, TOPICS.get(topic, TOPICS["nft"]))
+                posts = topic_data.get("posts", TOPICS["nft"]["posts"])
+                
+                if posts:
+                    post_text = random.choice(posts)
                     
-                    # Добавляем призыв
-                    footer = f"\n\n✨ Подписывайтесь! Еще больше интересного контента\n#autoposting"
+                    footer = f"\n\n✨ Подписывайтесь! 🔥 Еще больше интересного контента по теме!"
                     full_text = post_text + footer
                     
-                    user_id = settings.get("user_id")
-                    tariff = bot_data.user_tariffs.get(user_id, "free")
-                    
-                    if bot_data.can_post(user_id):
-                        if tariff == "pro" and settings.get("include_images", True):
-                            image_url = await bot_images.get_random_image(topic, topic_data)
+                    try:
+                        if not bot_data.can_post(user_id):
+                            await asyncio.sleep(300)
+                            continue
+                        
+                        tariff = bot_data.user_tariffs.get(user_id, "free")
+                        
+                        # Добавляем картинку для BASIC и PRO
+                        if tariff in ["basic", "pro"] and settings.get("include_images", True):
+                            image_url = await bot_images.get_random_image(topic, user_id)
                             if image_url:
                                 try:
                                     await bot.send_photo(chat_id=channel_id, photo=image_url, caption=full_text)
+                                    logger.info(f"✅ Автопост с картинкой в {channel_id}")
                                 except:
                                     await bot.send_message(chat_id=channel_id, text=full_text)
                             else:
@@ -440,12 +376,15 @@ async def auto_posting_worker(bot, channel_id: str):
                             await bot.send_message(chat_id=channel_id, text=full_text)
                         
                         settings["last_post"] = datetime.now()
-                        logger.info(f"✅ Пост отправлен в {channel_id}")
+                        logger.info(f"✅ Автопост отправлен в канал {channel_id}")
+                        
+                    except Exception as e:
+                        logger.error(f"Ошибка отправки: {e}")
             
             await asyncio.sleep(min(interval_seconds, 30))
             
         except Exception as e:
-            logger.error(f"Ошибка: {e}")
+            logger.error(f"Ошибка в авто-постинге: {e}")
             await asyncio.sleep(60)
 
 async def start_auto_posting(bot, channel_id: str):
@@ -470,91 +409,218 @@ async def get_main_keyboard(user_id: int):
     keyboard = [
         [InlineKeyboardButton("📝 Написать пост", callback_data="write_post")],
         [InlineKeyboardButton("🔍 Поиск картинок", callback_data="search_images")],
+        [InlineKeyboardButton("✨ Создать свою тему", callback_data="create_topic")],
         [InlineKeyboardButton("📢 Мои каналы", callback_data="my_channels")],
-        [InlineKeyboardButton("🎨 Мои темы", callback_data="my_topics")],
         [InlineKeyboardButton("⚙️ Автопостинг", callback_data="auto_posting")],
         [InlineKeyboardButton("💎 Тарифы", callback_data="tariffs")],
+        [InlineKeyboardButton("🖼 Размер картинок", callback_data="image_size_menu")],
         [InlineKeyboardButton("👤 Профиль", callback_data="profile")],
         [InlineKeyboardButton("📊 Статистика", callback_data="stats")],
         [InlineKeyboardButton("ℹ️ Помощь", callback_data="help")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
-async def get_topics_keyboard(channel_id: str = None):
+async def get_topics_keyboard(user_id: int, channel_id: str = None):
+    tariff = bot_data.user_tariffs.get(user_id, "free")
+    all_topics = custom_topics_manager.get_all_topics(user_id, tariff)
+    
     keyboard = []
-    for topic_key, topic_data in TOPICS.items():
+    for topic_key, topic_data in all_topics.items():
+        callback = f"set_topic_{channel_id}_{topic_key}" if channel_id else f"topic_{topic_key}"
         keyboard.append([
-            InlineKeyboardButton(f"{topic_data['emoji']} {topic_data['name']}", 
-                               callback_data=f"topic_{channel_id}_{topic_key}" if channel_id else f"select_topic_{topic_key}")
+            InlineKeyboardButton(f"{topic_data.get('emoji', '📌')} {topic_data['name']}", callback_data=callback)
         ])
     
-    # Добавляем свои темы пользователя
     if channel_id:
-        user_id = int(channel_id.split('_')[0]) if '_' in channel_id else 0
-        if user_id and user_id in bot_data.user_custom_topics:
-            for custom_key, custom_data in bot_data.user_custom_topics[user_id].items():
-                keyboard.append([
-                    InlineKeyboardButton(f"📝 {custom_data['name']}", 
-                                       callback_data=f"topic_{channel_id}_{custom_key}")
-                ])
+        keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data=f"auto_channel_{channel_id}")])
+    else:
+        keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_main")])
     
-    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="auto_posting" if channel_id else "back_main")])
     return InlineKeyboardMarkup(keyboard)
 
-async def get_post_sizes_keyboard(channel_id: str, topic: str):
+async def get_image_size_keyboard():
     keyboard = [
-        [InlineKeyboardButton("📄 Короткий (до 500 симв)", callback_data=f"size_{channel_id}_{topic}_Короткий")],
-        [InlineKeyboardButton("📚 Средний (500-1000 симв)", callback_data=f"size_{channel_id}_{topic}_Средний")],
-        [InlineKeyboardButton("📖 Полный (1000-2000 симв)", callback_data=f"size_{channel_id}_{topic}_Полный")],
-        [InlineKeyboardButton("🔙 Назад", callback_data=f"select_topic_auto_{channel_id}")]
+        [InlineKeyboardButton("🖼 Маленький (400x300)", callback_data="size_small")],
+        [InlineKeyboardButton("🖼 Средний (800x600)", callback_data="size_medium")],
+        [InlineKeyboardButton("🖼 Большой (1200x800)", callback_data="size_large")],
+        [InlineKeyboardButton("🖼 HD (1920x1080) - PRO", callback_data="size_hd")],
+        [InlineKeyboardButton("🔙 Назад", callback_data="back_main")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
 async def get_interval_keyboard(channel_id: str):
     keyboard = [
-        [InlineKeyboardButton("10 сек (PRO)", callback_data=f"interval_{channel_id}_10")],
-        [InlineKeyboardButton("30 сек (BASIC)", callback_data=f"interval_{channel_id}_30")],
-        [InlineKeyboardButton("1 мин", callback_data=f"interval_{channel_id}_60")],
-        [InlineKeyboardButton("5 мин", callback_data=f"interval_{channel_id}_300")],
-        [InlineKeyboardButton("10 мин", callback_data=f"interval_{channel_id}_600")],
-        [InlineKeyboardButton("30 мин", callback_data=f"interval_{channel_id}_1800")],
+        [InlineKeyboardButton("10 секунд (PRO)", callback_data=f"interval_{channel_id}_10")],
+        [InlineKeyboardButton("30 секунд (BASIC)", callback_data=f"interval_{channel_id}_30")],
+        [InlineKeyboardButton("1 минута", callback_data=f"interval_{channel_id}_60")],
+        [InlineKeyboardButton("5 минут", callback_data=f"interval_{channel_id}_300")],
+        [InlineKeyboardButton("10 минут", callback_data=f"interval_{channel_id}_600")],
+        [InlineKeyboardButton("30 минут", callback_data=f"interval_{channel_id}_1800")],
         [InlineKeyboardButton("1 час", callback_data=f"interval_{channel_id}_3600")],
         [InlineKeyboardButton("🔙 Назад", callback_data=f"auto_channel_{channel_id}")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
-async def get_auto_channels_keyboard(user_id: int):
-    channels = bot_data.get_channels(user_id)
-    keyboard = []
-    for ch in channels:
-        settings = bot_data.get_auto_settings(ch['id'])
-        status = "✅" if settings and settings.get("is_active") else "❌"
-        keyboard.append([InlineKeyboardButton(f"{status} {ch['title']}", callback_data=f"auto_channel_{ch['id']}")])
-    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_main")])
-    return InlineKeyboardMarkup(keyboard)
+# ==================== СОЗДАНИЕ СВОЕЙ ТЕМЫ ====================
+async def create_topic_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    tariff = bot_data.user_tariffs.get(user_id, "free")
+    
+    if tariff == "free":
+        await query.edit_message_text(
+            "❌ *Создание своих тем доступно на тарифах BASIC и PRO*\n\n"
+            "Перейдите на более высокий тариф в меню 'Тарифы'",
+            parse_mode='Markdown'
+        )
+        return
+    
+    await query.edit_message_text(
+        "✨ *Создание новой темы контента*\n\n"
+        "Шаг 1 из 3:\n"
+        "📝 *Введите название темы*\n"
+        "Примеры: Космос, Автомобили, Финансы\n\n"
+        "Используйте /cancel для отмены",
+        parse_mode='Markdown'
+    )
+    return WAITING_TOPIC_NAME
 
-# ==================== ОСНОВНЫЕ ОБРАБОТЧИКИ ====================
+async def receive_topic_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    topic_name = update.message.text.strip()
+    context.user_data['new_topic_name'] = topic_name
+    
+    await update.message.reply_text(
+        f"✨ *Тема: {topic_name}*\n\n"
+        "Шаг 2 из 3:\n"
+        "📝 *Введите 5-10 постов для этой темы*\n"
+        "Каждый пост должен быть на новой строке\n"
+        "Пример:\n"
+        "Пост 1 о теме\n"
+        "Пост 2 о теме\n"
+        "Пост 3 о теме\n\n"
+        "Используйте /cancel для отмены",
+        parse_mode='Markdown'
+    )
+    return WAITING_TOPIC_POSTS
+
+async def receive_topic_posts(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    posts_text = update.message.text.strip()
+    posts = [p.strip() for p in posts_text.split('\n') if p.strip()]
+    
+    if len(posts) < 3:
+        await update.message.reply_text("❌ Минимум 3 поста. Добавьте еще и отправьте заново")
+        return WAITING_TOPIC_POSTS
+    
+    context.user_data['new_topic_posts'] = posts
+    
+    await update.message.reply_text(
+        f"✨ *Посты получены! ({len(posts)} постов)*\n\n"
+        "Шаг 3 из 3:\n"
+        "🔍 *Введите ключевые слова для поиска картинок*\n"
+        "Через запятую (3-5 слов)\n"
+        "Пример: космос, планеты, звезды, галактика\n\n"
+        "Используйте /cancel для отмены",
+        parse_mode='Markdown'
+    )
+    return WAITING_TOPIC_QUERIES
+
+async def receive_topic_queries(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    queries_text = update.message.text.strip()
+    queries = [q.strip() for q in queries_text.split(',') if q.strip()]
+    
+    if len(queries) < 2:
+        await update.message.reply_text("❌ Минимум 2 ключевых слова. Отправьте заново")
+        return WAITING_TOPIC_QUERIES
+    
+    topic_name = context.user_data['new_topic_name']
+    posts = context.user_data['new_topic_posts']
+    
+    # Сохраняем тему
+    topic_key = custom_topics_manager.add_topic(user_id, topic_name, posts, queries)
+    
+    await update.message.reply_text(
+        f"✅ *Тема '{topic_name}' успешно создана!*\n\n"
+        f"📝 Постов: {len(posts)}\n"
+        f"🔍 Ключевые слова: {', '.join(queries)}\n\n"
+        f"Теперь вы можете использовать эту тему в автопостинге!",
+        parse_mode='Markdown'
+    )
+    
+    # Очищаем данные
+    context.user_data.clear()
+    
+    # Показываем главное меню
+    keyboard = await get_main_keyboard(user_id)
+    await update.message.reply_text("🎯 Главное меню:", reply_markup=keyboard)
+    return ConversationHandler.END
+
+# ==================== ОБРАБОТЧИКИ ====================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     bot_data.init_user(user.id, user.username or "", user.first_name or "")
     
     welcome_text = (
         f"✨ *Привет, {user.first_name}!*\n\n"
-        f"🤖 *Я бот для автопостинга с уникальными темами*\n\n"
+        f"🤖 *Я бот для автопостинга в Telegram каналы*\n\n"
         f"📋 *Мои возможности:*\n"
         f"• 📝 Ручная публикация постов\n"
-        f"• 🔍 Поиск картинок\n"
-        f"• 🎨 15+ тем с уникальными постами\n"
-        f"• 📏 Выбор размера постов\n"
-        f"• 🎯 Создание своей темы (PRO)\n"
-        f"• ⚙️ Автопостинг от 10 сек\n"
-        f"• 💎 Бесплатные тарифы\n\n"
-        f"🚀 *Новые темы:* NFT, Telegram, Крипта, DeFi, Web3, Мемы, Блокчейн, GameFi и другие!\n\n"
-        f"Начните с добавления канала в меню 'Мои каналы'"
+        f"• 🔍 Поиск и публикация картинок\n"
+        f"• ✨ Создание своих тем с уникальным контентом\n"
+        f"• 🖼 Настройка размера картинок (от 400x300 до HD)\n"
+        f"• ⚙️ Автопостинг с интервалом от 10 сек\n"
+        f"• 🎯 10+ готовых тем (NFT, Telegram, AI, Crypto и др.)\n\n"
+        f"🎁 *Все тарифы бесплатны!*\n\n"
+        f"💡 *Новые темы:* NFT Art, Crypto Gaming, Telegram, AI, NFT Collections"
     )
     
     keyboard = await get_main_keyboard(user.id)
     await update.message.reply_text(welcome_text, parse_mode='Markdown', reply_markup=keyboard)
+
+async def image_size_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    current_size = bot_data.get_image_size(query.from_user.id)
+    size_name = [k for k, v in IMAGE_SIZES.items() if v == current_size][0] if current_size else "medium"
+    
+    text = (
+        f"🖼 *Настройка размера изображений*\n\n"
+        f"Текущий размер: {size_name.upper()} ({current_size})\n\n"
+        f"Выберите желаемый размер:"
+    )
+    
+    keyboard = await get_image_size_keyboard()
+    await query.edit_message_text(text, parse_mode='Markdown', reply_markup=keyboard)
+
+async def set_image_size(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    size_key = query.data.replace("size_", "")
+    user_id = query.from_user.id
+    tariff = bot_data.user_tariffs.get(user_id, "free")
+    
+    if size_key == "hd" and tariff != "pro":
+        await query.edit_message_text("❌ HD размер доступен только на PRO тарифе")
+        return
+    
+    size_map = {
+        "small": "400x300",
+        "medium": "800x600", 
+        "large": "1200x800",
+        "hd": "1920x1080"
+    }
+    
+    new_size = size_map.get(size_key, "800x600")
+    
+    await query.edit_message_text(f"✅ Размер изображений изменен на {size_key.upper()} ({new_size})")
+    await asyncio.sleep(1)
+    
+    keyboard = await get_main_keyboard(user_id)
+    await query.message.reply_text("🎯 Главное меню:", reply_markup=keyboard)
 
 async def add_channel_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -563,8 +629,8 @@ async def add_channel_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(
         "📢 *Добавление канала*\n\n"
         "1️⃣ Добавьте бота в канал как администратора\n"
-        "2️⃣ Отправьте ссылку на канал\n\n"
-        "Примеры:\n"
+        "2️⃣ Отправьте ID канала или ссылку\n\n"
+        "📝 Форматы:\n"
         "• `@channel_username`\n"
         "• `https://t.me/channel_username`\n\n"
         "Отправьте ссылку:",
@@ -590,7 +656,12 @@ async def process_add_channel(update: Update, context: ContextTypes.DEFAULT_TYPE
         success, message = bot_data.add_channel(user.id, str(chat.id), chat.title)
         
         if success:
-            await update.message.reply_text(f"✅ *{message}*\n\n📢 {chat.title}", parse_mode='Markdown')
+            await update.message.reply_text(
+                f"✅ *{message}*\n\n"
+                f"📢 Название: {chat.title}\n"
+                f"🆔 ID: {chat.id}",
+                parse_mode='Markdown'
+            )
         else:
             await update.message.reply_text(f"❌ {message}")
         
@@ -601,18 +672,130 @@ async def process_add_channel(update: Update, context: ContextTypes.DEFAULT_TYPE
     except Exception as e:
         await update.message.reply_text(f"❌ *Ошибка:* {str(e)}", parse_mode='Markdown')
 
+async def write_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    channels = bot_data.get_channels(query.from_user.id)
+    if not channels:
+        await query.edit_message_text("❌ Сначала добавьте канал")
+        return
+    
+    keyboard = [[InlineKeyboardButton(f"📢 {ch['title']}", callback_data=f"post_to_{ch['id']}")] for ch in channels]
+    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_main")])
+    
+    await query.edit_message_text(
+        "📝 *Выберите канал для публикации:*",
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def send_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    channel_id = query.data.replace("post_to_", "")
+    context.user_data['post_channel'] = channel_id
+    
+    keyboard = [
+        [InlineKeyboardButton("📝 Текст", callback_data="post_type_text")],
+        [InlineKeyboardButton("🖼 Текст + картинка", callback_data="post_type_image")],
+        [InlineKeyboardButton("🔙 Назад", callback_data="write_post")]
+    ]
+    await query.edit_message_text(
+        "📝 *Выберите тип поста:*",
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def handle_post_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    post_type = query.data.replace("post_type_", "")
+    context.user_data['post_type'] = post_type
+    
+    if post_type == "text":
+        await query.edit_message_text("📝 *Напишите текст поста:*", parse_mode='Markdown')
+        context.user_data['awaiting_post'] = True
+    elif post_type == "image":
+        await query.edit_message_text(
+            "🖼 *Отправьте пост с картинкой*\n\n"
+            "Отправьте фото с подписью",
+            parse_mode='Markdown'
+        )
+        context.user_data['awaiting_image_post'] = True
+
+async def handle_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    channel_id = context.user_data.get('post_channel')
+    
+    if not channel_id:
+        await update.message.reply_text("❌ Ошибка")
+        return
+    
+    message_text = update.message.text
+    
+    try:
+        await context.bot.send_message(chat_id=channel_id, text=message_text)
+        await update.message.reply_text("✅ Пост успешно опубликован!")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка: {str(e)}")
+    
+    context.user_data['awaiting_post'] = False
+    context.user_data['post_channel'] = None
+    keyboard = await get_main_keyboard(user.id)
+    await update.message.reply_text("🎯 Главное меню:", reply_markup=keyboard)
+
+async def handle_image_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    channel_id = context.user_data.get('post_channel')
+    
+    if not channel_id:
+        await update.message.reply_text("❌ Ошибка")
+        return
+    
+    tariff = bot_data.user_tariffs.get(user.id, "free")
+    if tariff not in ["basic", "pro"]:
+        await update.message.reply_text("❌ Посты с картинками доступны на BASIC и PRO тарифах")
+        return
+    
+    caption = update.message.caption or "📸 Новый пост!"
+    photo = update.message.photo[-1]
+    
+    try:
+        await context.bot.send_photo(chat_id=channel_id, photo=photo.file_id, caption=caption)
+        await update.message.reply_text("✅ Пост с картинкой опубликован!")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка: {str(e)}")
+    
+    context.user_data['awaiting_image_post'] = False
+    context.user_data['post_channel'] = None
+    keyboard = await get_main_keyboard(user.id)
+    await update.message.reply_text("🎯 Главное меню:", reply_markup=keyboard)
+
 async def auto_posting_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    keyboard = await get_auto_channels_keyboard(query.from_user.id)
+    channels = bot_data.get_channels(query.from_user.id)
+    if not channels:
+        await query.edit_message_text("❌ Сначала добавьте канал")
+        return
+    
+    keyboard = []
+    for ch in channels:
+        settings = bot_data.get_auto_settings(ch['id'])
+        status = "✅" if settings and settings.get("is_active") else "❌"
+        keyboard.append([InlineKeyboardButton(f"{status} {ch['title']}", callback_data=f"auto_channel_{ch['id']}")])
+    
+    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_main")])
     await query.edit_message_text(
         "⚙️ *Настройка автопостинга*\n\n"
         "✅ - активен\n"
-        "❌ - неактивен\n\n"
-        "Выберите канал:",
+        "❌ - неактивен",
         parse_mode='Markdown',
-        reply_markup=keyboard
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
 async def configure_auto(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -621,26 +804,25 @@ async def configure_auto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     channel_id = query.data.replace("auto_channel_", "")
     settings = bot_data.get_auto_settings(channel_id)
+    user_id = query.from_user.id
     
     if settings:
         is_active = settings.get("is_active", False)
         interval = settings.get("interval", 60)
         topic = settings.get("topic", "nft")
-        post_size = settings.get("post_size", "Средний")
         include_images = settings.get("include_images", True)
         
-        if topic.startswith("custom_"):
-            user_id = settings.get("user_id")
-            topic_name = bot_data.user_custom_topics.get(user_id, {}).get(topic, {}).get("name", "Своя тема")
-        else:
-            topic_name = TOPICS.get(topic, TOPICS["nft"])["name"]
+        # Получаем все темы пользователя
+        tariff = bot_data.user_tariffs.get(user_id, "free")
+        all_topics = custom_topics_manager.get_all_topics(user_id, tariff)
+        topic_data = all_topics.get(topic, TOPICS.get(topic, TOPICS["nft"]))
+        topic_name = topic_data["name"]
     else:
         is_active = False
         interval = 60
         topic = "nft"
-        post_size = "Средний"
         include_images = True
-        topic_name = TOPICS["nft"]["name"]
+        topic_name = "NFT Искусство"
     
     status_text = "✅ АКТИВЕН" if is_active else "❌ НЕАКТИВЕН"
     interval_display = f"{interval // 60} мин" if interval >= 60 else f"{interval} сек"
@@ -650,15 +832,13 @@ async def configure_auto(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📢 Канал: {channel_id}\n"
         f"🔄 Статус: {status_text}\n"
         f"📝 Тема: {topic_name}\n"
-        f"📏 Размер: {post_size}\n"
         f"⏱ Интервал: {interval_display}\n"
         f"🖼 Картинки: {'✅ Да' if include_images else '❌ Нет'}\n\n"
     )
     
     keyboard = [
-        [InlineKeyboardButton("🔄 Вкл/Выкл", callback_data=f"toggle_auto_{channel_id}")],
+        [InlineKeyboardButton("🔄 Включить/Выключить", callback_data=f"toggle_auto_{channel_id}")],
         [InlineKeyboardButton("🎯 Выбрать тему", callback_data=f"select_topic_auto_{channel_id}")],
-        [InlineKeyboardButton("📏 Размер постов", callback_data=f"select_size_{channel_id}")],
         [InlineKeyboardButton("⏱ Интервал", callback_data=f"change_interval_{channel_id}")],
         [InlineKeyboardButton("🖼 Картинки", callback_data=f"toggle_images_{channel_id}")],
         [InlineKeyboardButton("🔙 Назад", callback_data="auto_posting")]
@@ -673,76 +853,36 @@ async def select_topic_for_auto(update: Update, context: ContextTypes.DEFAULT_TY
     channel_id = query.data.replace("select_topic_auto_", "")
     context.user_data['topic_channel'] = channel_id
     
-    keyboard = await get_topics_keyboard(channel_id)
+    keyboard = await get_topics_keyboard(query.from_user.id, channel_id)
     await query.edit_message_text(
         "📝 *Выберите тему для автопостинга:*\n\n"
-        "• NFT, Telegram, Криптовалюта\n"
-        "• DeFi, Web3, Мемы\n"
-        "• Блокчейн, GameFi и другие",
+        "🎨 NFT Искусство | 📱 Telegram | ₿ Криптовалюта\n"
+        "🤖 ИИ | 🖼 NFT Коллекции | 🎮 Crypto Gaming\n"
+        "✨ Свои темы - ваши уникальные посты!",
         parse_mode='Markdown',
         reply_markup=keyboard
     )
-
-async def select_post_size(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    channel_id = query.data.replace("select_size_", "")
-    settings = bot_data.get_auto_settings(channel_id)
-    current_topic = settings.get("topic", "nft") if settings else "nft"
-    
-    keyboard = await get_post_sizes_keyboard(channel_id, current_topic)
-    await query.edit_message_text(
-        "📏 *Выберите размер постов:*\n\n"
-        "• Короткий - быстрые новости\n"
-        "• Средний - стандартный пост\n"
-        "• Полный - подробная статья",
-        parse_mode='Markdown',
-        reply_markup=keyboard
-    )
-
-async def set_post_size(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    parts = query.data.split("_")
-    channel_id = parts[1]
-    topic = parts[2]
-    size = parts[3]
-    
-    settings = bot_data.get_auto_settings(channel_id)
-    if settings:
-        settings["post_size"] = size
-    else:
-        bot_data.set_auto_posting(channel_id, query.from_user.id, topic, 60, size, False)
-    
-    await query.edit_message_text(f"✅ Размер постов: {size}")
-    await asyncio.sleep(1)
-    await configure_auto(update, context)
 
 async def set_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
     parts = query.data.split("_")
-    channel_id = parts[1]
-    topic = parts[2]
+    channel_id = parts[2]
+    topic = "_".join(parts[3:])  # Для составных ключей
     user_id = query.from_user.id
     
-    # Получаем размер из настроек или ставим по умолчанию
     settings = bot_data.get_auto_settings(channel_id)
-    current_size = settings.get("post_size", "Средний") if settings else "Средний"
-    
     if settings:
         settings["topic"] = topic
     else:
-        bot_data.set_auto_posting(channel_id, user_id, topic, 60, current_size, False)
+        bot_data.set_auto_posting(channel_id, user_id, topic, 60, False)
     
-    if topic.startswith("custom_"):
-        topic_data = bot_data.user_custom_topics.get(user_id, {}).get(topic, {})
-        topic_name = topic_data.get("name", "Своя тема")
-    else:
-        topic_name = TOPICS.get(topic, TOPICS["nft"])["name"]
+    # Получаем название темы
+    tariff = bot_data.user_tariffs.get(user_id, "free")
+    all_topics = custom_topics_manager.get_all_topics(user_id, tariff)
+    topic_data = all_topics.get(topic, TOPICS.get(topic, TOPICS["nft"]))
+    topic_name = topic_data["name"]
     
     await query.edit_message_text(f"✅ Тема установлена: {topic_name}")
     await asyncio.sleep(1)
@@ -756,7 +896,7 @@ async def toggle_auto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     settings = bot_data.get_auto_settings(channel_id)
     
     if not settings:
-        await query.edit_message_text("❌ Сначала настройте тему и интервал")
+        await query.edit_message_text("❌ Сначала выберите тему и интервал")
         return
     
     is_active = not settings.get("is_active", False)
@@ -826,12 +966,77 @@ async def set_interval(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if settings:
         settings["interval"] = interval
     else:
-        bot_data.set_auto_posting(channel_id, user_id, "nft", interval, "Средний", False)
+        bot_data.set_auto_posting(channel_id, user_id, "nft", interval, False)
     
     interval_display = f"{interval // 60} мин" if interval >= 60 else f"{interval} сек"
     await query.edit_message_text(f"✅ Интервал установлен: {interval_display}")
     await asyncio.sleep(1)
     await configure_auto(update, context)
+
+async def search_images(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    tariff = bot_data.user_tariffs.get(query.from_user.id, "free")
+    if tariff != "pro":
+        await query.edit_message_text("❌ Поиск картинок доступен только на PRO тарифе")
+        return
+    
+    await query.edit_message_text(
+        "🔍 *Поиск картинок*\n\n"
+        "Отправьте ключевое слово для поиска:\n"
+        "Пример: `кот`, `природа`, `технологии`\n\n"
+        "Размер картинок зависит от вашего тарифа",
+        parse_mode='Markdown'
+    )
+    context.user_data['searching_image'] = True
+
+async def handle_image_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    query_text = update.message.text.strip()
+    
+    await update.message.reply_text(f"🔍 Ищу картинки по запросу: {query_text}...")
+    
+    size = bot_data.get_image_size(user.id)
+    image_url = await bot_images.search_image(query_text, size)
+    
+    if image_url:
+        channels = bot_data.get_channels(user.id)
+        if channels:
+            keyboard = [[InlineKeyboardButton(f"📢 {ch['title']}", callback_data=f"send_search_{ch['id']}_{query_text}")] for ch in channels[:5]]
+            keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_main")])
+            
+            await update.message.reply_photo(photo=image_url, caption=f"🔍 Результат поиска: {query_text}\n\nВыберите канал для публикации:", reply_markup=InlineKeyboardMarkup(keyboard))
+        else:
+            await update.message.reply_photo(photo=image_url, caption=f"🔍 Результат поиска: {query_text}")
+    else:
+        await update.message.reply_text("❌ Не удалось найти картинку")
+    
+    context.user_data['searching_image'] = False
+
+async def send_search_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    parts = query.data.split("_")
+    channel_id = parts[2]
+    search_query = "_".join(parts[3:])
+    
+    size = bot_data.get_image_size(query.from_user.id)
+    image_url = await bot_images.search_image(search_query, size)
+    
+    if image_url:
+        try:
+            await context.bot.send_photo(chat_id=channel_id, photo=image_url, caption=f"🖼 Поиск: {search_query}\n\n✨ Подписывайтесь на канал!")
+            await query.edit_message_text(f"✅ Картинка отправлена в канал!")
+        except Exception as e:
+            await query.edit_message_text(f"❌ Ошибка: {str(e)}")
+    else:
+        await query.edit_message_text("❌ Не удалось найти картинку")
+    
+    await asyncio.sleep(2)
+    keyboard = await get_main_keyboard(query.from_user.id)
+    await query.message.reply_text("🎯 Главное меню:", reply_markup=keyboard)
 
 async def show_tariffs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -844,15 +1049,16 @@ async def show_tariffs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for tariff_key, tariff_info in TARIFFS.items():
         is_current = "✅ *ТЕКУЩИЙ* " if tariff_key == current_tariff else ""
         text += f"{is_current}{tariff_info['name']}\n"
-        text += f"⏱ Мин интервал: {tariff_info['min_interval']} сек\n"
-        text += f"📢 Макс каналов: {tariff_info['max_channels']}\n"
+        text += f"⏱ Мин. интервал: {tariff_info['min_interval']} сек\n"
+        text += f"📢 Макс. каналов: {tariff_info['max_channels']}\n"
         text += f"📝 Постов в день: {tariff_info['max_posts_per_day']}\n"
+        text += f"🖼 Размер фото: {tariff_info['image_size'].upper()}\n"
         text += "✨ Возможности:\n"
         for feature in tariff_info['features']:
             text += f"  {feature}\n"
         text += "\n"
     
-    text += "🎁 *Все тарифы бесплатны!*\n\n💡 PRO дает доступ к своим темам и картинкам"
+    text += "🎁 *Все тарифы полностью бесплатны!*"
     
     keyboard = [[InlineKeyboardButton(tariff_info['name'], callback_data=f"select_tariff_{key}")] 
                 for key, tariff_info in TARIFFS.items()]
@@ -870,13 +1076,68 @@ async def select_tariff(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bot_data.user_tariffs[user_id] = tariff_key
     
     await query.edit_message_text(
-        f"✅ *Тариф обновлен!*\n\nВаш тариф: {TARIFFS[tariff_key]['name']}",
+        f"✅ *Тариф обновлен!*\n\n"
+        f"Ваш тариф: {TARIFFS[tariff_key]['name']}\n\n"
+        f"Теперь доступны новые возможности!",
         parse_mode='Markdown'
     )
     
     await asyncio.sleep(2)
     keyboard = await get_main_keyboard(user_id)
     await query.message.reply_text("🎯 Главное меню:", reply_markup=keyboard)
+
+async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    user = bot_data.users.get(user_id, {})
+    tariff = bot_data.user_tariffs.get(user_id, "free")
+    channels = bot_data.get_channels(user_id)
+    custom_topics = custom_topics_manager.get_user_topics(user_id)
+    
+    active_auto = sum(1 for ch in channels if bot_data.get_auto_settings(ch['id']) and bot_data.get_auto_settings(ch['id']).get("is_active"))
+    
+    text = (
+        f"👤 *Ваш профиль*\n\n"
+        f"📝 Имя: {user.get('first_name', 'Unknown')}\n"
+        f"💎 Тариф: {TARIFFS[tariff]['name']}\n"
+        f"📢 Каналов: {len(channels)}/{TARIFFS[tariff]['max_channels']}\n"
+        f"✨ Своих тем: {len(custom_topics)}\n"
+        f"⚙️ Активных автопостингов: {active_auto}\n"
+        f"🖼 Размер фото: {bot_data.get_image_size(user_id)}\n"
+        f"📅 В системе с: {user.get('joined', datetime.now()).strftime('%d.%m.%Y')}\n\n"
+        f"У вас есть уникальные темы! Создавайте свои в меню"
+    )
+    
+    keyboard = [[InlineKeyboardButton("🔙 Назад", callback_data="back_main")]]
+    await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+
+async def show_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    channels = bot_data.get_channels(user_id)
+    auto_settings = bot_data.auto_posting
+    
+    auto_for_user = [s for s in auto_settings.values() if s.get("user_id") == user_id]
+    active_auto = [s for s in auto_for_user if s.get("is_active")]
+    
+    text = (
+        f"📊 *Статистика*\n\n"
+        f"📢 Всего каналов: {len(channels)}\n"
+        f"⚙️ Настроено автопостингов: {len(auto_for_user)}\n"
+        f"✅ Активных автопостингов: {len(active_auto)}\n\n"
+        f"📈 Сегодня опубликовано: {bot_data.daily_post_counts.get(user_id, {}).get('count', 0)} постов\n\n"
+        f"💡 *Рекомендации:*\n"
+        f"• Создавайте свои темы для уникального контента\n"
+        f"• Используйте PRO тариф для HD картинок\n"
+        f"• Для лучшего охвата ставьте интервал 30-60 мин"
+    )
+    
+    keyboard = [[InlineKeyboardButton("🔙 Назад", callback_data="back_main")]]
+    await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -891,7 +1152,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = await get_main_keyboard(update.effective_user.id)
     await update.message.reply_text("🎯 Главное меню:", reply_markup=keyboard)
 
-# ==================== ГЛАВНЫЙ ОБРАБОТЧИК ====================
+# ==================== ОСНОВНОЙ ОБРАБОТЧИК ====================
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
@@ -899,17 +1160,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "back_main":
         await back_to_main(update, context)
     elif data == "write_post":
-        await query.edit_message_text("📝 Напишите пост и отправьте его боту", parse_mode='Markdown')
-        context.user_data['awaiting_post'] = True
+        await write_post(update, context)
     elif data == "search_images":
-        await query.edit_message_text("🔍 Введите ключевое слово для поиска картинки", parse_mode='Markdown')
-        context.user_data['searching_image'] = True
+        await search_images(update, context)
+    elif data == "create_topic":
+        await create_topic_start(update, context)
     elif data == "my_channels":
-        keyboard = [[InlineKeyboardButton(f"📢 {ch['title']}", callback_data=f"channel_{ch['id']}")] 
-                    for ch in bot_data.get_channels(query.from_user.id)]
-        keyboard.append([InlineKeyboardButton("➕ Добавить канал", callback_data="add_channel")])
-        keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_main")])
-        await query.edit_message_text("📢 *Ваши каналы*", parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+        keyboard = await get_channels_keyboard(query.from_user.id)
+        await query.edit_message_text("📢 *Ваши каналы*", parse_mode='Markdown', reply_markup=keyboard)
     elif data == "add_channel":
         await add_channel_start(update, context)
     elif data == "auto_posting":
@@ -917,73 +1175,44 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "tariffs":
         await show_tariffs(update, context)
     elif data == "profile":
-        user_id = query.from_user.id
-        user = bot_data.users.get(user_id, {})
-        tariff = bot_data.user_tariffs.get(user_id, "free")
-        channels = bot_data.get_channels(user_id)
-        text = f"👤 *Профиль*\n\n📝 {user.get('first_name')}\n💎 {TARIFFS[tariff]['name']}\n📢 Каналов: {len(channels)}/{TARIFFS[tariff]['max_channels']}"
-        keyboard = [[InlineKeyboardButton("🔙 Назад", callback_data="back_main")]]
-        await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+        await show_profile(update, context)
     elif data == "stats":
-        user_id = query.from_user.id
-        channels = bot_data.get_channels(user_id)
-        active = sum(1 for ch in channels if bot_data.get_auto_settings(ch['id']) and bot_data.get_auto_settings(ch['id']).get("is_active"))
-        text = f"📊 *Статистика*\n\n📢 Каналов: {len(channels)}\n⚙️ Активных: {active}\n📝 Постов сегодня: {bot_data.daily_post_counts.get(user_id, {}).get('count', 0)}"
-        keyboard = [[InlineKeyboardButton("🔙 Назад", callback_data="back_main")]]
-        await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
-    elif data == "my_topics":
-        user_id = query.from_user.id
-        tariff = bot_data.user_tariffs.get(user_id, "free")
-        if tariff != "pro":
-            await query.edit_message_text("❌ Свои темы доступны только на PRO тарифе", parse_mode='Markdown')
-            return
-        
-        await query.edit_message_text(
-            "🎨 *Создание своей темы*\n\n"
-            "Отправьте:\n"
-            "1️⃣ Название темы\n"
-            "2️⃣ 5+ постов (каждый с новой строки)\n"
-            "3️⃣ Ключевые слова для поиска картинок\n\n"
-            "Пример:\n"
-            "Тема: Космос\n"
-            "Пост 1: Текст...\n"
-            "Пост 2: Текст...\n"
-            "Ключи: space, galaxy, cosmos",
-            parse_mode='Markdown'
-        )
-        context.user_data['creating_custom_topic'] = True
+        await show_stats(update, context)
+    elif data == "image_size_menu":
+        await image_size_menu(update, context)
+    elif data.startswith("size_"):
+        await set_image_size(update, context)
     elif data == "help":
-        text = (
+        help_text = (
             "ℹ️ *Помощь*\n\n"
-            "📋 *Доступные темы:*\n"
-            "• NFT, Telegram, Криптовалюта\n"
-            "• DeFi, Web3, Мемы\n"
-            "• Блокчейн, GameFi, Метавселенная\n"
-            "• Стейкинг, Аирдропы, Трейдинг\n\n"
-            "🎯 *Возможности:*\n"
-            "• Выбор размера постов\n"
-            "• Автоматические картинки\n"
-            "• Своя тема (PRO)\n"
-            "• Автопостинг от 10 сек\n\n"
-            "💡 *PRO тариф:*\n"
-            "• 50 каналов\n"
-            "• Интервал от 10 сек\n"
-            "• Свои темы\n"
-            "• Картинки к постам"
+            "📋 *Новые функции:*\n"
+            "• ✨ Создание своих тем с уникальными постами\n"
+            "• 🖼 4 размера картинок (от 400x300 до HD)\n"
+            "• 🎨 NFT Art, NFT Collections, Crypto Gaming\n"
+            "• 📱 Telegram продвижение и монетизация\n"
+            "• 🤖 Искусственный Интеллект и нейросети\n"
+            "• ₿ Криптовалюта и NFT\n\n"
+            "🎯 *Как создать свою тему:*\n"
+            "1. Нажмите 'Создать свою тему'\n"
+            "2. Введите название\n"
+            "3. Напишите 5-10 уникальных постов\n"
+            "4. Укажите ключевые слова для картинок\n\n"
+            "💡 *Советы:*\n"
+            "• Для HD картинок нужен PRO тариф\n"
+            "• Свои темы доступны на BASIC и PRO\n"
+            "• Посты не повторяются - уникальный контент"
         )
-        await query.edit_message_text(text, parse_mode='Markdown')
+        await query.edit_message_text(help_text, parse_mode='Markdown')
+    elif data.startswith("post_to_"):
+        await send_post(update, context)
+    elif data.startswith("post_type_"):
+        await handle_post_type(update, context)
     elif data.startswith("auto_channel_"):
         await configure_auto(update, context)
     elif data.startswith("select_topic_auto_"):
         await select_topic_for_auto(update, context)
-    elif data.startswith("select_size_"):
-        await select_post_size(update, context)
-    elif data.startswith("size_"):
-        await set_post_size(update, context)
-    elif data.startswith("topic_"):
-        parts = data.split("_")
-        if len(parts) == 3:
-            await set_topic(update, context)
+    elif data.startswith("set_topic_"):
+        await set_topic(update, context)
     elif data.startswith("toggle_auto_"):
         await toggle_auto(update, context)
     elif data.startswith("toggle_images_"):
@@ -994,6 +1223,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await set_interval(update, context)
     elif data.startswith("select_tariff_"):
         await select_tariff(update, context)
+    elif data.startswith("send_search_"):
+        await send_search_image(update, context)
 
 async def get_channels_keyboard(user_id: int):
     channels = bot_data.get_channels(user_id)
@@ -1001,122 +1232,6 @@ async def get_channels_keyboard(user_id: int):
     keyboard.append([InlineKeyboardButton("➕ Добавить канал", callback_data="add_channel")])
     keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_main")])
     return InlineKeyboardMarkup(keyboard)
-
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if context.user_data.get('adding_channel'):
-        await process_add_channel(update, context)
-    elif context.user_data.get('awaiting_post'):
-        channel_id = context.user_data.get('post_channel')
-        if not channel_id:
-            # Нужно выбрать канал
-            channels = bot_data.get_channels(update.effective_user.id)
-            if not channels:
-                await update.message.reply_text("❌ Сначала добавьте канал")
-                return
-            keyboard = [[InlineKeyboardButton(f"📢 {ch['title']}", callback_data=f"post_to_{ch['id']}")] for ch in channels]
-            keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_main")])
-            await update.message.reply_text("📝 *Выберите канал:*", parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
-            context.user_data['temp_post_text'] = update.message.text
-        else:
-            # Отправляем пост
-            try:
-                await context.bot.send_message(chat_id=channel_id, text=update.message.text)
-                await update.message.reply_text("✅ Пост опубликован!")
-            except Exception as e:
-                await update.message.reply_text(f"❌ Ошибка: {str(e)}")
-            context.user_data['awaiting_post'] = False
-            context.user_data['post_channel'] = None
-    elif context.user_data.get('searching_image'):
-        await handle_image_search(update, context)
-    elif context.user_data.get('creating_custom_topic'):
-        await handle_custom_topic(update, context)
-
-async def handle_image_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    query = update.message.text.strip()
-    
-    tariff = bot_data.user_tariffs.get(user.id, "free")
-    if tariff != "pro":
-        await update.message.reply_text("❌ Поиск картинок доступен на PRO тарифе")
-        context.user_data['searching_image'] = False
-        return
-    
-    channels = bot_data.get_channels(user.id)
-    if not channels:
-        await update.message.reply_text("❌ Сначала добавьте канал")
-        context.user_data['searching_image'] = False
-        return
-    
-    keyboard = [[InlineKeyboardButton(f"📢 {ch['title']}", callback_data=f"send_image_{ch['id']}_{query}")] for ch in channels]
-    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_main")])
-    await update.message.reply_text(f"🔍 Ищу картинки по запросу '{query}'...\n\nВыберите канал:", reply_markup=InlineKeyboardMarkup(keyboard))
-    context.user_data['searching_image'] = Falseasync def send_image_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    parts = query.data.split("_")
-    channel_id = parts[2]
-    search_query = parts[3]
-    
-    await query.edit_message_text(f"🖼 Ищу картинку...")
-    
-    image_url = await bot_images.search_image(search_query)
-    
-    if image_url:
-        try:
-            await context.bot.send_photo(chat_id=channel_id, photo=image_url, caption=f"🖼 {search_query}\n\n✨ Подписывайтесь!")
-            await query.edit_message_text("✅ Картинка отправлена!")
-        except Exception as e:
-            await query.edit_message_text(f"❌ Ошибка: {str(e)}")
-    else:
-        await query.edit_message_text("❌ Не удалось найти картинку")
-    
-    await asyncio.sleep(2)
-    keyboard = await get_main_keyboard(query.from_user.id)
-    await query.message.reply_text("🎯 Главное меню:", reply_markup=keyboard)
-
-async def handle_custom_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    text = update.message.text
-    
-    if 'custom_topic_data' not in context.user_data:
-        context.user_data['custom_topic_data'] = {}
-        await update.message.reply_text("📝 Введите название темы:")
-        return
-    
-    if 'name' not in context.user_data['custom_topic_data']:
-        context.user_data['custom_topic_data']['name'] = text
-        await update.message.reply_text("📝 Введите 5+ постов (каждый с новой строки):")
-        return
-    
-    if 'posts' not in context.user_data['custom_topic_data']:
-        posts = text.split('\n')
-        if len(posts) < 5:
-            await update.message.reply_text("❌ Нужно минимум 5 постов. Попробуйте еще раз:")
-            return
-        context.user_data['custom_topic_data']['posts'] = posts
-        await update.message.reply_text("🔍 Введите ключевые слова для поиска картинок (через запятую):")
-        return
-    
-    if 'keywords' not in context.user_data['custom_topic_data']:
-        keywords = [k.strip() for k in text.split(',')]
-        context.user_data['custom_topic_data']['keywords'] = keywords
-        
-        # Сохраняем тему
-        data = context.user_data['custom_topic_data']
-        topic_key = bot_data.add_custom_topic(user.id, data['name'], data['posts'], data['keywords'])
-        
-        await update.message.reply_text(
-            f"✅ *Своя тема создана!*\n\n"
-            f"📝 Название: {data['name']}\n"
-            f"📊 Постов: {len(data['posts'])}\n"
-            f"🔍 Ключи: {', '.join(data['keywords'])}\n\n"
-            f"Теперь выберите эту тему в настройках автопостинга!",
-            parse_mode='Markdown'
-        )
-        
-        context.user_data['creating_custom_topic'] = False
-        del context.user_data['custom_topic_data']
 
 # ==================== ЗАПУСК ====================
 def main():
@@ -1127,20 +1242,42 @@ def main():
     application.add_handler(CommandHandler("menu", start))
     application.add_handler(CommandHandler("cancel", cancel))
     
+    # ConversationHandler для создания темы
+    create_topic_handler = ConversationHandler(
+        entry_points=[CallbackQueryHandler(create_topic_start, pattern="^create_topic$")],
+        states={
+            WAITING_TOPIC_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_topic_name)],
+            WAITING_TOPIC_POSTS: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_topic_posts)],
+            WAITING_TOPIC_QUERIES: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_topic_queries)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)]
+    )
+    application.add_handler(create_topic_handler)
+    
     # Обработчики
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-    application.add_handler(MessageHandler(filters.PHOTO, lambda u, c: None))
+    application.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND,
+        lambda u, c: process_add_channel(u, c) if c.user_data.get('adding_channel')
+        else (handle_post(u, c) if c.user_data.get('awaiting_post')
+        else (handle_image_search(u, c) if c.user_data.get('searching_image')
+        else None))
+    ))
+    
+    application.add_handler(MessageHandler(
+        filters.PHOTO,
+        lambda u, c: handle_image_post(u, c) if c.user_data.get('awaiting_image_post') else None
+    ))
+    
     application.add_handler(CallbackQueryHandler(handle_callback))
     
-    logger.info("🚀 Бот запущен!")
-    logger.info("✅ 15+ тем с уникальными постами")
-    logger.info("🎨 NFT, Telegram, Крипта, DeFi, Web3, Мемы и другие")
-    logger.info("📏 Выбор размера постов")
-    logger.info("🖼 Поддержка картинок")
-    logger.info("🎯 Свои темы для PRO")
+    logger.info("🚀 Бот для автопостинга запущен!")
+    logger.info("✅ 10+ тем: NFT Art, NFT Коллекции, Telegram, AI, Crypto Gaming")
+    logger.info("✨ Создание своих тем с уникальными постами")
+    logger.info("🖼 4 размера картинок от 400x300 до HD")
+    logger.info("⚡ Интервал автопостинга от 10 секунд")
+    logger.info("💎 Все тарифы бесплатны!")
     
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
     main()
-    
