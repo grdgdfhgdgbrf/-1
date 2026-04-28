@@ -1,11 +1,14 @@
 import asyncio
 import logging
+import time
 import random
 import aiohttp
 import io
 from datetime import datetime, timedelta
-from typing import Dict, Optional, List
-import re
+from typing import Dict, Optional, List, Any
+from dataclasses import dataclass, field
+from enum import Enum
+import json
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 from telegram.ext import (
@@ -33,145 +36,173 @@ TARIFFS = {
         "name": "🌟 Бесплатный",
         "max_channels": 3,
         "min_interval": 60,
-        "max_posts_per_day": 50,
-        "features": ["✅ 3 канала", "✅ Интервал от 1 мин", "✅ 50 постов/день", "✅ 10 тем", "✅ Текст + эмодзи"]
+        "max_posts_per_day": 100,
+        "features": ["✅ 3 канала", "✅ Интервал от 1 мин", "✅ 100 постов/день", "✅ Текстовые посты"]
     },
     "basic": {
         "name": "📘 Базовый",
         "max_channels": 10,
         "min_interval": 30,
-        "max_posts_per_day": 200,
-        "features": ["✅ 10 каналов", "✅ Интервал от 30 сек", "✅ 200 постов/день", "✅ 20 тем", "✅ Картинки к постам"]
+        "max_posts_per_day": 500,
+        "features": ["✅ 10 каналов", "✅ Интервал от 30 сек", "✅ 500 постов/день", "✅ Картинки", "✅ Репосты"]
     },
     "pro": {
         "name": "💎 PRO",
-        "max_channels": 50,
+        "max_channels": 30,
         "min_interval": 10,
-        "max_posts_per_day": 1000,
-        "features": ["✅ 50 каналов", "✅ Интервал от 10 сек", "✅ 1000 постов/день", "✅ 30+ тем", "✅ Поиск картинок", "✅ Длинные посты"]
+        "max_posts_per_day": 2000,
+        "features": ["✅ 30 каналов", "✅ Интервал от 10 сек", "✅ 2000 постов/день", "✅ HD картинки", 
+                    "✅ Поиск картинок", "✅ Видео", "✅ Репосты", "✅ ИИ контент"]
     }
 }
 
-# ==================== РАСШИРЕННЫЕ ТЕМЫ ====================
+# ==================== ТЕМЫ С ПОСТАМИ И КАРТИНКАМИ ====================
 TOPICS = {
     "technology": {
-        "name": "💻 Технологии и IT",
+        "name": "💻 Технологии",
         "emoji": "💻",
         "posts": [
-            "🚀 **Новый прорыв в ИИ!**\n\nУченые создали нейросеть, которая может предсказывать будущее с точностью 90%! Искусственный интеллект теперь способен анализировать огромные массивы данных и делать прогнозы на основе сложных алгоритмов машинного обучения.\n\n🤖 Инновации в области AI открывают новые горизонты для медицины, финансов и науки. В ближайшие годы нас ждет настоящая революция!\n\n#AI #Технологии #Инновации",
-            "📱 **iPhone 15 Pro Max - полный обзор**\n\nТитан, USB-C, кнопка действия (Action Button) и чип A17 Pro. Смартфон получил 48-мегапиксельную камеру, 5-кратный оптический зум и невероятную производительность.\n\n🔋 Батарея держится на 30% дольше\n📸 Ночной режим стал еще лучше\n🎮 Игры теперь как на консолях\n\nСтоит ли обновляться? Определенно ДА!\n\n#iPhone #Apple #Обзор",
-            "🖥 **Как выбрать идеальный ноутбук в 2024**\n\nДля работы, учебы или игр - мы подготовили полный гайд! \n\n💼 Для работы: MacBook Air M2, Lenovo ThinkPad\n🎓 Для учебы: Acer Swift, Huawei MateBook\n🎮 Для игр: ASUS ROG, MSI Gaming\n\nСоветы:\n• Оперативная память: минимум 16GB\n• Процессор: Intel i5/i7 или AMD Ryzen 5/7\n• SSD: от 512GB\n• Батарея: от 8 часов\n\nКакой ноутбук выбрали бы вы? \n\n#Ноутбук #Технологии #Гаджеты"
+            "🚀 **Новый прорыв в AI**\n\nИскусственный интеллект GPT-5 обучили на 100 триллионах параметров. Нейросеть способна создавать полноценные видео и решать сложные научные задачи.\n\n#технологии #AI #нейросети",
+            "📱 **Смартфоны будущего**\n\nГибкие дисплеи, 200-мегапиксельные камеры, зарядка за 10 минут - технологии 2025 года уже здесь!\n\n#смартфоны #технологии #гаджеты",
+            "🌐 **Квантовые компьютеры**\n\nGoogle объявила о создании квантового компьютера в 1000 кубитов. Это открывает новую эру в вычислениях!\n\n#кванты #технологии #наука",
+            "💡 **Илон Маск показал Neuralink 2.0**\n\nНейрочип позволяет управлять техникой силой мысли и восстанавливать зрение. Уже начались испытания на людях.\n\n#neuralink #технологии #илонмаск",
+            "🔋 **Супер-аккумуляторы**\n\nКитайские ученые создали батарею, которая заряжается за 30 секунд и держит заряд месяц!\n\n#аккумуляторы #технологии #энергия"
         ],
-        "hashtags": ["#технологии", "#IT", "#гаджеты", "#инновации"]
+        "image_queries": ["technology", "AI", "smartphone", "robot", "computer"]
     },
     "business": {
-        "name": "📊 Бизнес и Финансы",
+        "name": "📊 Бизнес",
         "emoji": "📊",
         "posts": [
-            "💰 **10 способов заработать в интернете в 2024**\n\n1. Фриланс (до $5000/мес)\n2. Дропшиппинг (до $10000/мес)\n3. Инфобизнес (до $50000/мес)\n4. YouTube канал (от $1000)\n5. Криптовалюты (риски!)\n6. SMM услуги (от $2000)\n7. Создание сайтов ($500-5000)\n8. Партнерский маркетинг (пассивный доход)\n9. Онлайн-курсы\n10. Торговля на маркетплейсах\n\n🚀 Начните сегодня! Главное - действие!\n\n#Бизнес #Заработок #Фриланс",
-            "📈 **Топ-5 криптовалют для инвестиций**\n\nBitcoin (BTC) - цифровое золото\nEthereum (ETH) - смарт-контракты\nSolana (SOL) - высокая скорость\nCardano (ADA) - научный подход\nPolkadot (DOT) - интероперабельность\n\n💡 Совет: диверсифицируйте портфель и никогда не инвестируйте последние деньги!\n\n#Криптовалюта #Инвестиции #Биткоин",
-            "🏢 **Как открыть ИП в 2024: пошаговая инструкция**\n\nШаг 1: Выберите систему налогообложения\nШаг 2: Подготовьте документы (паспорт, ИНН)\nШаг 3: Оплатите госпошлину - 800₽\nШаг 4: Подайте заявление в налоговую\nШаг 5: Получите документы (5 дней)\nШаг 6: Откройте расчетный счет\nШаг 7: Закажите печать (по желанию)\n\n💰 Стоимость: около 3000₽\n⏱ Время: 5-7 дней\n\nГотовы стать предпринимателем?\n\n#Бизнес #ИП #Предпринимательство"
+            "💰 **Как заработать первый миллион в 2025**\n\nТоп-5 ниш для стартапа: AI-услуги, экопродукты, онлайн-образование, финтех, здоровье.\n\n#бизнес #заработок #стартап",
+            "📈 **Криптовалюта снова растет**\n\nБиткоин достиг $150,000. Эксперты прогнозируют дальнейший рост до $200,000.\n\n#биткоин #криптовалюта #инвестиции",
+            "🏢 **Как открыть бизнес с нуля**\n\nПошаговая инструкция: регистрация, поиск клиентов, маркетинг. Реальные кейсы и советы.\n\n#бизнесидеи #стартап #предпринимательство",
+            "💼 **Фриланс 2025**\n\nТоп-10 востребованных профессий: AI-инженеры, data scientists, дизайнеры нейросетей, копирайтеры.\n\n#фриланс #работа #заработок",
+            "📊 **Секреты успешных предпринимателей**\n\nКак Маск, Безос и Цукерберг начинали. Уроки и инсайты от миллиардеров.\n\n#успех #бизнес #мотивация"
         ],
-        "hashtags": ["#бизнес", "#финансы", "#инвестиции", "#деньги"]
+        "image_queries": ["business", "money", "startup", "success", "entrepreneur"]
     },
     "health": {
-        "name": "⚕️ Здоровье и Спорт",
+        "name": "⚕️ Здоровье",
         "emoji": "⚕️",
         "posts": [
-            "🏋️ **Идеальная утренняя зарядка за 10 минут**\n\n☀️ Упражнение 1: Наклоны головы (30 сек)\n☀️ Упражнение 2: Вращение плечами (30 сек)\n☀️ Упражнение 3: Махи руками (1 мин)\n☀️ Упражнение 4: Повороты корпуса (1 мин)\n☀️ Упражнение 5: Приседания (2 мин)\n☀️ Упражнение 6: Выпады (2 мин)\n☀️ Упражнение 7: Планка (1 мин)\n☀️ Упражнение 8: Растяжка (2 мин)\n\n🌟 Польза:\n• Заряд бодрости на весь день\n• Улучшение метаболизма\n• Профилактика заболеваний\n\nНачните завтра утро с зарядки! 💪\n\n#Здоровье #Спорт #Зарядка",
-            "🥗 **7 продуктов, которые продлят вашу жизнь**\n\n1️⃣ Оливковое масло - антиоксиданты\n2️⃣ Грецкие орехи - омега-3\n3️⃣ Голубика - для мозга\n4️⃣ Лосось - витамин D\n5️⃣ Брокколи - клетчатка\n6️⃣ Куркума - противовоспалительное\n7️⃣ Зеленый чай - долголетие\n\n🧪 Научно доказано: эти продукты снижают риск болезней сердца, рака и диабета на 30-50%!\n\nДобавьте их в свой рацион уже сегодня!\n\n#Питание #Долголетие #ЗОЖ",
-            "😴 **Как спать 6 часов и высыпаться**\n\nСекреты продуктивного сна:\n\n⏰ Ложитесь до 23:00\n📱 Без гаджетов за час до сна\n🌡 Температура в комнате 18-20°C\n🛏 Удобный матрас и подушка\n🧘 Медитация перед сном\n🚫 Не ешьте за 3 часа до сна\n☕ Без кофеина после 16:00\n🌙 Полная темнота в комнате\n\nПлюсы качественного сна:\n• Высокая продуктивность\n• Хорошее настроение\n• Крепкий иммунитет\n• Молодая кожа\n\nСладких снов! 💤\n\n#Сон #Здоровье #Продуктивность"
+            "🏃‍♂️ **10 минут для здоровья**\n\nПростая утренняя зарядка, которая изменит вашу жизнь. Всего 10 минут в день и вы полны энергии!\n\n#здоровье #спорт #фитнес",
+            "🥗 **Правильное питание**\n\n10 продуктов, которые нужно есть каждый день. Простые рецепты для здоровья и долголетия.\n\n#питание #зож #рецепты",
+            "💪 **Как сохранить молодость**\n\nСекреты долголетия от 100-летних долгожителей. Правила, которые работают.\n\n#молодость #здоровье #долголетие",
+            "🧘‍♀️ **Медитация для начинающих**\n\nВсего 5 минут в день снижают стресс на 70%. Простая техника для спокойствия.\n\n#медитация #релакс #стресс",
+            "😴 **Идеальный сон**\n\nКак спать 6 часов и высыпаться. Научный подход к качественному отдыху.\n\n#сон #здоровье #режим"
         ],
-        "hashtags": ["#здоровье", "#спорт", "#фитнес", "#ЗОЖ"]
+        "image_queries": ["health", "fitness", "meditation", "healthy food", "sport"]
     },
-    "psychology": {
-        "name": "🧠 Психология и Саморазвитие",
-        "emoji": "🧠",
+    "education": {
+        "name": "📚 Образование",
+        "emoji": "📚",
         "posts": [
-            "🧘 **10 привычек успешных людей**\n\n1. Ранний подъем (5-6 утра)\n2. Медитация/планирование дня\n3. Чтение книг (30+ стр/день)\n4. Физическая активность\n5. Обучение новому\n6. Ведение дневника\n7. Позитивное мышление\n8. Отказ от соцсетей (до 2 часов)\n9. Здоровое питание\n10. Благодарность каждый день\n\n💫 Начните с одной привычки и добавляйте новую каждую неделю. Через месяц вы не узнаете себя!\n\nКакая привычка самая сложная для вас?\n\n#Саморазвитие #Привычки #Успех",
-            "💪 **Как победить прокрастинацию: 5 работающих методов**\n\nМетод 1 - 🍅 Помидор (25 минут работы, 5 отдых)\nМетод 2 - 🎯 Правило 2 минут (если дело на 2 минуты - сделай сразу)\nМетод 3 - 📋 Разбей задачу на микро-шаги\nМетод 4 - 🏆 Награда после выполнения\nМетод 5 - 🚫 Уберите отвлекающие факторы\n\nПочему это работает:\n✅ Снижает тревожность\n✅ Создает ощущение прогресса\n✅ Формирует привычку\n\nПопробуйте прямо сейчас! Напишите 3 задачи на сегодня и начните с самой маленькой!\n\n#Психология #Продуктивность #Мотивация",
-            "🎯 **Как найти свое призвание**\n\nПошаговый план:\n\n1️⃣ Вспомните, чем любили заниматься в детстве\n2️⃣ Выпишите 20 вещей, которые приносят радость\n3️⃣ Что бы вы делали бесплатно?\n4️⃣ За что вас хвалят другие?\n5️⃣ Пройдите тесты на профориентацию\n6️⃣ Изучите профессии будущего\n7️⃣ Попробуйте разные сферы (экспериментируйте!)\n8️⃣ Спросите совета у наставника\n9️⃣ Не бойтесь ошибаться\n🔟 Идите к мечте маленькими шагами\n\n💡 Помните: призвание - это то, где ваши таланты встречаются с пользой для мира!\n\nУже нашли свое призвание? Делитесь в комментариях!\n\n#Саморазвитие #Призвание #Карьера"
+            "📖 **Как выучить английский за 3 месяца**\n\nМетодика полиглотов: учим 20 слов в день, смотрим сериалы, разговариваем с носителями.\n\n#английский #обучение #языки",
+            "🧠 **Скорочтение и память**\n\nТехники, которые увеличат скорость чтения в 3 раза и улучшат запоминание на 80%.\n\n#скорочтение #память #развитие",
+            "💡 **Как стать экспертом в любой области**\n\nПравило 10000 часов, методика «интенсивного погружения», лучшие курсы.\n\n#эксперт #обучение #карьера",
+            "🎓 **Топ-10 бесплатных курсов**\n\nЛучшие онлайн-курсы от Harvard, MIT, Stanford с сертификатами. Бесплатно!\n\n#образование #курсы #учеба",
+            "📚 **Книги, которые изменят жизнь**\n\n50 книг по саморазвитию, бизнесу, психологии. Маст-рид для успешного человека.\n\n#книги #саморазвитие #библиотека"
         ],
-        "hashtags": ["#психология", "#саморазвитие", "#мотивация"]
+        "image_queries": ["education", "study", "book", "learning", "school"]
     },
-    "travel": {
-        "name": "✈️ Путешествия",
-        "emoji": "✈️",
-        "posts": [
-            "🌍 **Топ-5 стран для бюджетных путешествий 2024**\n\n1️⃣ Грузия ($30/день)\n• Цены: еда $5, жилье $15\n• Визовый режим: не нужна\n\n2️⃣ Вьетнам ($25/день)\n• Цены: еда $3, жилье $10\n• Авиабилеты от $400\n\n3️⃣ Турция ($35/день)\n• Цены: еда $8, жилье $20\n• Все включено выгодно\n\n4️⃣ Казахстан ($25/день)\n• Цены: еда $5, жилье $12\n• Красивая природа\n\n5️⃣ Индия ($20/день)\n• Цены: еда $3, жилье $8\n• Йога и духовные практики\n\n💰 Лайфхак: летайте с пересадками, бронируйте заранее, используйте кэшбэк!\n\nКуда планируете в этом году?\n\n#Путешествия #БюджетныйТревел #Мир",
-            "🏝 **Бали: полный гайд для новичков**\n\nГде жить:\n• Кута - тусовки ($15)\n• Чангу - серфинг ($20)\n• Убуд - йога ($12)\n• Семиньяк - люкс ($40+)\n\nЧто посмотреть:\n📍 Храм Улувату\n📍 Рисовые террасы Тегаллаланг\n📍 Вулкан Батур\n📍 Водопад Сепумпунг\n📍 Остров Нуса Пенида\n\nСоветы:\n🛵 Аренда байка - $5/день\n🍜 Местная еда - $2-3\n💳 Берите наличные\n📱 SIM Card - $10\n\nМечтаете о Бали? Самое время ехать!\n\n#Бали #Индонезия #ПутешествияМечты",
-            "🗺 **Секреты дешевых авиабилетов**\n\nКак экономить до 70%:\n\n1️⃣ Покупайте за 2-3 месяца\n2️⃣ Летайте по вторникам/средам\n3️⃣ Используйте инкогнито-режим\n4️⃣ Следите за акциями\n5️⃣ Сравнивайте агрегаторы:\n   • Skyscanner\n   • Aviasales\n   • Google Flights\n   • Momondo\n\n6️⃣ Подпишитесь на рассылки\n7️⃣ Используйте мили/бонусы\n8️⃣ Летайте с пересадками\n9️⃣ Выбирайте лоукостеры:\n   • Ryanair\n   • Wizz Air\n   • Pobeda\n   • AirAsia\n\n💰 Пример: Москва-Бангкок от $150!\n\nЛетите дешево!\n\n#Авиабилеты #Экономия #ТревелХак"
-        ],
-        "hashtags": ["#путешествия", "#туризм", "#мир"]
-    },
-    "crypto": {
-        "name": "🪙 Криптовалюты",
-        "emoji": "🪙",
-        "posts": [
-            "📊 **Анализ рынка криптовалют**\n\nТекущая ситуация:\n\n📈 Bitcoin (BTC): $45,000\n• Доминирование: 52%\n• Поддержка: $42,000\n• Сопротивление: $48,000\n\n🚀 Ethereum (ETH): $2,800\n• Газ: 20-40 Gwei\n• Апгрейд Dencun скоро\n\n💎 Альткоины:\n• Solana (SOL): $100\n• Cardano (ADA): $0.5\n• Polkadot (DOT): $8\n\nПрогноз: бычий тренд, ожидаем рост к концу года\n\nЧто в вашем портфеле?\n\n#Криптовалюта #Bitcoin #Трейдинг"
-        ],
-        "hashtags": ["#криптовалюта", "#биткоин", "#трейдинг"]
-    },
-    "cooking": {
-        "name": "🍳 Кулинария",
-        "emoji": "🍳",
-        "posts": [
-            "👨‍🍳 **Идеальный ужин за 30 минут**\n\n🍝 Паста Карбонара:\nИнгредиенты:\n• Спагетти - 400г\n• Бекон - 200г\n• Яйца - 4 шт\n• Пармезан - 100г\n• Чеснок - 3 зубчика\n• Сливки - 200мл\n\nПриготовление:\n1. Сварите пасту\n2. Обжарьте бекон с чесноком\n3. Смешайте яйца с сыром\n4. Добавьте сливки\n5. Соедините все ингредиенты\n\nГотово за 30 минут! Вкуснее, чем в ресторане! 😋\n\n#Кулинария #Рецепты #Паста"
-        ],
-        "hashtags": ["#кулинария", "#рецепты", "#еда"]
-    },
-    "movies": {
-        "name": "🎬 Кино и Сериалы",
+    "entertainment": {
+        "name": "🎬 Развлечения",
         "emoji": "🎬",
         "posts": [
-            "🍿 **Топ-10 сериалов 2024**\n\n1. «Одни из нас» (HBO) - 9.5/10\n2. «Медленные лошади» (Apple TV) - 9.3\n3. «Поколение V» (Amazon) - 9.0\n4. «Утреннее шоу» (Apple TV) - 8.8\n5. «Последние из нас» (HBO) - 9.6\n6. «Корона» (Netflix) - 8.9\n7. «Ведьмак» (Netflix) - 8.5\n8. «Фарго» (FX) - 9.2\n9. «Белый лотос» (HBO) - 8.7\n10. «Мандалорец» (Disney+) - 9.1\n\nЧто смотрите сейчас? Делитесь в комментариях!\n\n#Сериалы #Кино #Топ2024"
+            "🍿 **Топ-10 фильмов 2024**\n\nЛучшие фильмы года: «Оппенгеймер», «Барби», «Дюна 2». Список обязательных к просмотру.\n\n#фильмы #кино #топ2024",
+            "🎮 **Новые игры 2025**\n\nGTA 6, The Witcher 4, новый God of War. Обзор самых ожидаемых релизов.\n\n#игры #гейминг #новинки",
+            "🎵 **Музыкальные хиты**\n\nТоп-10 песен, которые взорвали чарты. Плейлист для отличного настроения.\n\n#музыка #хиты #плейлист",
+            "😂 **Самые смешные мемы**\n\nПодборка мемов, которые разорвали интернет. Улыбнитесь!\n\n#мемы #юмор #смех",
+            "📺 **Лучшие сериалы**\n\nЧто посмотреть вечером: «Корона», «Ведьмак», «Очень странные дела». Рейтинг IMDB.\n\n#сериалы #кино #рейтинг"
         ],
-        "hashtags": ["#кино", "#сериалы", "#топ2024"]
+        "image_queries": ["cinema", "game", "music", "funny meme", "movie"]
     },
-    "gaming": {
-        "name": "🎮 Игры",
-        "emoji": "🎮",
+    "lifestyle": {
+        "name": "🌟 Лайфстайл",
+        "emoji": "🌟",
         "posts": [
-            "🎮 **Топ игр 2024**\n\nОбязательны к прохождению:\n\n1️⃣ Spider-Man 2 (PS5) - 10/10\n2️⃣ Alan Wake 2 (PC/PS5/Xbox) - 9.5\n3️⃣ Baldur's Gate 3 (PC/PS5) - 10/10\n4️⃣ Starfield (PC/Xbox) - 8.5\n5️⃣ Lies of P (PC/PS5/Xbox) - 9.0\n\nБесплатные игры:\n• Genshin Impact\n• Warframe\n• Apex Legends\n• Valorant\n• Fortnite\n\nВ какую игру играете сейчас?\n\n#Игры #Gaming #Топ2024"
+            "✨ **Утренние ритуалы успешных людей**\n\nКак начинают день Опра, Тим Кук, Ричард Брэнсон. Их секреты продуктивности.\n\n#утро #продуктивность #успех",
+            "🏡 **Как создать идеальный дом**\n\n10 советов по дизайну интерьера, которые сделают ваш дом уютным и стильным.\n\n#дизайн #интерьер #уют",
+            "💃 **Мода 2025**\n\nГлавные тренды года: цвета, фасоны, аксессуары. Что будет в гардеробе модников.\n\n#мода #стиль #тренды",
+            "✈️ **Путешествие мечты**\n\nТоп-10 мест, которые нужно посетить в 2025 году. Мальдивы, Исландия, Япония.\n\n#путешествия #отдых #мечта",
+            "🎨 **Хобби для души**\n\nКак найти любимое дело, которое приносит радость и деньги. Идеи для творчества.\n\n#хобби #творчество #вдохновение"
         ],
-        "hashtags": ["#игры", "#гейминг", "#новинки"]
+        "image_queries": ["lifestyle", "travel", "fashion", "hobby", "inspiration"]
     },
-    "fashion": {
-        "name": "👗 Мода и Стиль",
-        "emoji": "👗",
+    "science": {
+        "name": "🔬 Наука",
+        "emoji": "🔬",
         "posts": [
-            "👔 **Мужской гардероб: 12 вещей, которые должны быть**\n\nБаза:\n1. Белая рубашка\n2. Синий пиджак\n3. Черные брюки\n4. Джинсы\n5. Свитер кашемир\n6. Поло\n7. Футболки (белая/черная)\n8. Кожаная куртка\n9. Пальто\n10. Кроссовки минимализм\n11. Классические туфли\n12. Часы\n\n💡 Стильно и универсально!\n\n#Мода #Стиль #МужскойГардероб"
+            "🚀 **Космические открытия**\n\nТелескоп Джеймс Уэбб нашел признаки жизни на экзопланете в 100 световых годах.\n\n#космос #наука #открытия",
+            "🧬 **Генная инженерия**\n\nУченые научились редактировать гены для лечения рака. Прорыв в медицине!\n\n#генетика #медицина #наука",
+            "🌍 **Изменение климата**\n\nПоследние данные: средняя температура выросла на 2 градуса. Что нас ждет?\n\n#климат #экология #наука",
+            "🐾 **Новые виды животных**\n\nВ Амазонии открыты 100 новых видов. Удивительные создания природы.\n\n#животные #биология #открытия",
+            "⚛️ **Физика будущего**\n\nФизики создали кротовую нору в квантовом компьютере. Путешествия во времени?\n\n#физика #кванты #наука"
         ],
-        "hashtags": ["#мода", "#стиль", "#look"]
+        "image_queries": ["science", "space", "dna", "planet", "discovery"]
     },
-    "gadgets": {
-        "name": "📱 Гаджеты",
-        "emoji": "📱",
+    "psychology": {
+        "name": "🧠 Психология",
+        "emoji": "🧠",
         "posts": [
-            "⌚ **Революция в смарт-часах**\n\nНовые Apple Watch Ultra 2:\n• Титан\n• 36 часов батареи\n• Датчик температуры\n• Радар падений\n• 2000 нит дисплей\n• GPS L1 и L5\n\nПлюсы:\n✅ Монстр производительности\n✅ Для экстремалов\n✅ Защита до 100м\n\nМинусы:\n❌ Цена ($799)\n❌ Массивный дизайн\n\nСтоит брать?\n\n#Гаджеты #AppleWatch #Обзор"
+            "🤔 **Как читать мысли людей**\n\n10 психологических трюков, которые помогут понять собеседника. Язык тела, жесты, мимика.\n\n#психология #общение #эмоции",
+            "💪 **Как победить страх**\n\nМетодики преодоления тревожности и стресса. Практические упражнения для уверенности.\n\n#страх #уверенность #психология",
+            "❤️ **Секреты счастливых отношений**\n\nЧто говорят психологи о любви, доверии и гармонии. Как сохранить семью.\n\n#отношения #любовь #психология",
+            "🧘 **Как стать счастливее**\n\nНаучные исследования: привычки счастливых людей. Простые шаги к радости.\n\n#счастье #психология #радость",
+            "💭 **Психология успеха**\n\nПочему одни достигают целей, а другие нет. Ментальные установки миллионеров.\n\n#успех #мышление #психология"
         ],
-        "hashtags": ["#гаджеты", "#технологии", "#обзор"]
+        "image_queries": ["psychology", "brain", "mind", "happy", "success"]
+    },
+    "crypto": {
+        "name": "₿ Криптовалюта",
+        "emoji": "₿",
+        "posts": [
+            "₿ **Биткоин обновил максимум**\n\nПервая криптовалюта достигла $150,000. Что дальше? Прогнозы аналитиков.\n\n#биткоин #криптовалюта #инвестиции",
+            "📈 **Альткоины, которые выстрелят**\n\nТоп-10 перспективных монет на 2025 год. Инвестируйте с умом.\n\n#альткоины #крипта #инвестиции",
+            "💰 **Как заработать на крипте**\n\nСтратегии трейдинга, стейкинг, майнинг. Пошаговое руководство для новичков.\n\n#крипта #заработок #трейдинг",
+            "🔒 **Безопасность криптокошелька**\n\nКак защитить свои монеты от хакеров. Лучшие практики хранения.\n\n#безопасность #кошелек #крипта",
+            "🚀 **NFT снова в тренде**\n\nЦифровое искусство продается за миллионы. Как создать и продать свой NFT.\n\n#nft #искусство #крипта"
+        ],
+        "image_queries": ["bitcoin", "cryptocurrency", "blockchain", "nft", "trading"]
+    },
+    "marketing": {
+        "name": "📢 Маркетинг",
+        "emoji": "📢",
+        "posts": [
+            "📱 **Как продвигать Telegram канал**\n\n5 работающих способов набрать 10,000 подписчиков. Бесплатные методы.\n\n#маркетинг #tg #продвижение",
+            "💰 **Instagram реклама 2025**\n\nНовые алгоритмы, форматы, бюджеты. Как получить клиентов дешево.\n\n#instagram #реклама #маркетинг",
+            "📧 **Email маркетинг**\n\nКак собирать базу и продавать через письма. Конверсия 30% - реально!\n\n#email #маркетинг #продажи",
+            "🎯 **Таргетинг**\n\nНастройка рекламы на ЦА. Ошибки новичков и как их избежать.\n\n#таргетинг #реклама #маркетинг",
+            "📊 **Аналитика для бизнеса**\n\nКакие метрики важны. Как отслеживать ROI и увеличивать прибыль.\n\n#аналитика #бизнес #маркетинг"
+        ],
+        "image_queries": ["marketing", "social media", "advertising", "analytics", "business"]
     }
 }
 
-# ==================== КАРТИНКИ ДЛЯ ТЕМ ====================
-POST_IMAGES = {
-    "technology": [
-        "https://images.pexels.com/photos/2582937/pexels-photo-2582937.jpeg",
-        "https://images.pexels.com/photos/1181671/pexels-photo-1181671.jpeg"
-    ],
-    "business": [
-        "https://images.pexels.com/photos/7567434/pexels-photo-7567434.jpeg",
-        "https://images.pexels.com/photos/4164418/pexels-photo-4164418.jpeg"
-    ],
-    "health": [
-        "https://images.pexels.com/photos/2254031/pexels-photo-2254031.jpeg",
-        "https://images.pexels.com/photos/842711/pexels-photo-842711.jpeg"
-    ],
-    "travel": [
-        "https://images.pexels.com/photos/415733/pexels-photo-415733.jpeg",
-        "https://images.pexels.com/photos/417074/pexels-photo-417074.jpeg"
-    ]
+# Расширенные темы для PRO тарифа
+EXTENDED_TOPICS = {
+    "productivity": {
+        "name": "⚡ Продуктивность",
+        "emoji": "⚡",
+        "posts": [
+            "⚡ **Как работать по 4 часа и успевать все**\n\nМетодики тайм-менеджмента от мировых экспертов. Увеличьте эффективность на 300%.\n\n#продуктивность #работа #успех",
+            "🎯 **Система GTD**\n\nGetting Things Done по Дэвиду Аллену. Полный разбор для максимальной продуктивности.\n\n#gtd #система #продуктивность",
+            "📋 **Как ставить цели и достигать**\n\nSMART, OKR и другие методики. Пошаговый план к вашей мечте.\n\n#цели #план #успех",
+            "🧠 **Управление энергией**\n\nКак не выгорать и сохранять высокую продуктивность целый день.\n\n#энергия #продуктивность #здоровье"
+        ],
+        "image_queries": ["productivity", "work", "goal", "success", "time management"]
+    },
+    "design": {
+        "name": "🎨 Дизайн",
+        "emoji": "🎨",
+        "posts": [
+            "🎨 **Тренды дизайна 2025**\n\nМинимализм, 3D, нейросети. Что актуально в UI/UX.\n\n#дизайн #тренды #uiux",
+            "🖌️ **Как стать дизайнером с нуля**\n\nОбучение, портфолио, поиск клиентов. Реальный план.\n\n#дизайн #карьера #обучение",
+            "🌟 **Лучшие инструменты дизайнера**\n\nFigma, Adobe, Canva. Что учить в 2025.\n\n#дизайн #инструменты #figma"
+        ],
+        "image_queries": ["design", "art", "creative", "modern design", "digital art"]
+    }
 }
 
 # ==================== ХРАНИЛИЩЕ ДАННЫХ ====================
@@ -182,166 +213,218 @@ class BotData:
         self.auto_posting = {}
         self.posting_tasks = {}
         self.user_tariffs = {}
-        self.posts_count = {}
-        self.last_posts = {}
-    
+        self.daily_post_counts = {}
+        self.image_cache = {}
+        
     def init_user(self, user_id: int, username: str, first_name: str):
         if user_id not in self.users:
             self.users[user_id] = {
                 "id": user_id,
                 "username": username,
                 "first_name": first_name,
-                "joined": datetime.now()
+                "joined": datetime.now(),
+                "last_active": datetime.now()
             }
             self.user_tariffs[user_id] = "free"
             self.channels[user_id] = []
-            self.posts_count[user_id] = 0
+            self.daily_post_counts[user_id] = {"date": datetime.now().date(), "count": 0}
     
     def add_channel(self, user_id: int, channel_id: str, channel_title: str):
         tariff = self.user_tariffs.get(user_id, "free")
         max_channels = TARIFFS[tariff]["max_channels"]
         
+        if len(self.channels.get(user_id, [])) >= max_channels:
+            return False, f"Достигнут лимит каналов для тарифа {TARIFFS[tariff]['name']}"
+        
         if user_id not in self.channels:
             self.channels[user_id] = []
         
-        if len(self.channels[user_id]) >= max_channels:
-            return False, f"Лимит каналов: {max_channels}"
-        
         for ch in self.channels[user_id]:
             if ch["id"] == channel_id:
-                return False, "Канал уже добавлен"
+                return False, "Этот канал уже добавлен"
         
         self.channels[user_id].append({
             "id": channel_id,
             "title": channel_title,
             "added": datetime.now()
         })
-        return True, "Канал добавлен"
+        return True, "Канал успешно добавлен!"
     
     def get_channels(self, user_id: int):
         return self.channels.get(user_id, [])
     
-    def can_post(self, user_id: int) -> bool:
-        tariff = self.user_tariffs.get(user_id, "free")
-        max_posts = TARIFFS[tariff]["max_posts_per_day"]
-        today = datetime.now().date()
-        
-        if user_id not in self.last_posts:
-            self.last_posts[user_id] = {"date": today, "count": 0}
-        
-        if self.last_posts[user_id]["date"] != today:
-            self.last_posts[user_id] = {"date": today, "count": 0}
-        
-        return self.last_posts[user_id]["count"] < max_posts
-    
-    def add_post(self, user_id: int):
-        if user_id in self.last_posts:
-            self.last_posts[user_id]["count"] += 1
-    
-    def set_auto(self, channel_id: str, user_id: int, topic: str, interval: int):
+    def set_auto_posting(self, channel_id: str, user_id: int, topic: str, interval: int, is_active: bool = False):
         self.auto_posting[channel_id] = {
             "user_id": user_id,
             "topic": topic,
             "interval": interval,
-            "active": True,
-            "last_post": datetime.now() - timedelta(minutes=interval)
+            "is_active": is_active,
+            "last_post": datetime.now(),
+            "channel_title": self.get_channel_title(user_id, channel_id),
+            "include_images": True,
+            "use_extended": False
         }
         return True
     
-    def get_auto(self, channel_id: str):
+    def get_auto_settings(self, channel_id: str):
         return self.auto_posting.get(channel_id)
     
-    def toggle_auto(self, channel_id: str, active: bool):
+    def toggle_auto(self, channel_id: str, is_active: bool):
         if channel_id in self.auto_posting:
-            self.auto_posting[channel_id]["active"] = active
+            self.auto_posting[channel_id]["is_active"] = is_active
+            if is_active:
+                self.auto_posting[channel_id]["last_post"] = datetime.now()
             return True
         return False
+    
+    def get_channel_title(self, user_id: int, channel_id: str) -> str:
+        for ch in self.channels.get(user_id, []):
+            if ch["id"] == channel_id:
+                return ch["title"]
+        return channel_id
+    
+    def can_post(self, user_id: int) -> bool:
+        tariff = self.user_tariffs.get(user_id, "free")
+        max_posts = TARIFFS[tariff]["max_posts_per_day"]
+        
+        today = datetime.now().date()
+        if user_id not in self.daily_post_counts:
+            self.daily_post_counts[user_id] = {"date": today, "count": 0}
+        
+        if self.daily_post_counts[user_id]["date"] != today:
+            self.daily_post_counts[user_id] = {"date": today, "count": 0}
+        
+        if self.daily_post_counts[user_id]["count"] >= max_posts:
+            return False
+        
+        self.daily_post_counts[user_id]["count"] += 1
+        return True
 
 bot_data = BotData()
 
 # ==================== ПОИСК КАРТИНОК ====================
-async def search_image(topic: str) -> Optional[str]:
-    """Поиск картинки по теме (имитация, в реальности нужно API)"""
-    images = POST_IMAGES.get(topic, POST_IMAGES.get("technology"))
-    if images:
-        return random.choice(images)
-    return None
+class ImageFinder:
+    @staticmethod
+    async def search_image(query: str):
+        """Поиск картинки по запросу"""
+        # Unsplash API (бесплатный)
+        try:
+            async with aiohttp.ClientSession() as session:
+                url = f"https://source.unsplash.com/featured/1200x800/?{query}"
+                async with session.get(url) as response:
+                    if response.status == 200:
+                        return url
+        except:
+            pass
+        return None
+    
+    @staticmethod
+    async def get_random_image(topic: str):
+        """Получить случайную картинку по теме"""
+        topic_data = TOPICS.get(topic, TOPICS["technology"])
+        queries = topic_data.get("image_queries", ["nature"])
+        query = random.choice(queries)
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                url = f"https://picsum.photos/1200/800"
+                async with session.get(url) as response:
+                    if response.status == 200:
+                        return url
+        except:
+            return None
+        return None
 
-# ==================== АВТОПОСТИНГ ====================
+bot_images = ImageFinder()
+
+# ==================== АВТОПОСТИНГ С КАРТИНКАМИ ====================
 async def auto_posting_worker(bot, channel_id: str):
-    """Фоновый поток для автопостинга"""
+    """Фоновый поток для автопостинга с картинками"""
     while True:
         try:
-            settings = bot_data.get_auto(channel_id)
-            if not settings or not settings.get("active"):
+            settings = bot_data.get_auto_settings(channel_id)
+            if not settings or not settings.get("is_active", False):
                 break
             
-            now = datetime.now()
-            last = settings.get("last_post", now - timedelta(minutes=60))
-            interval = settings.get("interval", 60)
+            current_time = datetime.now()
+            last_post = settings.get("last_post", datetime.now() - timedelta(days=1))
+            interval_seconds = settings.get("interval", 60)
             
-            if (now - last).total_seconds() >= interval:
-                topic_key = settings.get("topic")
-                user_id = settings.get("user_id")
+            time_diff = (current_time - last_post).total_seconds()
+            
+            if time_diff >= interval_seconds:
+                topic = settings.get("topic", "technology")
+                topic_data = TOPICS.get(topic, TOPICS["technology"])
+                posts = topic_data.get("posts", [])
                 
-                if bot_data.can_post(user_id):
-                    topic = TOPICS.get(topic_key, TOPICS["technology"])
-                    posts = topic.get("posts", [])
+                if posts:
+                    post_text = random.choice(posts)
                     
-                    if posts:
-                        post_text = random.choice(posts)
+                    # Добавляем призыв подписаться
+                    footer = f"\n\n✨ Подписывайтесь! Еще больше интересного контента"
+                    full_text = post_text + footer
+                    
+                    try:
+                        user_id = settings.get("user_id")
+                        tariff = bot_data.user_tariffs.get(user_id, "free")
                         
-                        # Добавляем хэштеги
-                        hashtags = " " + " ".join(topic.get("hashtags", []))
-                        full_text = post_text + hashtags
+                        # Проверяем лимит постов
+                        if not bot_data.can_post(user_id):
+                            logger.warning(f"Лимит постов для пользователя {user_id} превышен")
+                            await asyncio.sleep(300)
+                            continue
                         
-                        try:
-                            # Пробуем добавить картинку
-                            image_url = await search_image(topic_key)
-                            
+                        # Для PRO тарифа пробуем добавить картинку
+                        if tariff == "pro" and settings.get("include_images", True):
+                            image_url = await bot_images.get_random_image(topic)
                             if image_url:
-                                await bot.send_photo(
-                                    chat_id=channel_id,
-                                    photo=image_url,
-                                    caption=full_text,
-                                    parse_mode='Markdown'
-                                )
+                                try:
+                                    await bot.send_photo(chat_id=channel_id, photo=image_url, caption=full_text)
+                                    logger.info(f"✅ Автопост с картинкой в {channel_id}")
+                                except:
+                                    await bot.send_message(chat_id=channel_id, text=full_text)
                             else:
-                                await bot.send_message(
-                                    chat_id=channel_id,
-                                    text=full_text,
-                                    parse_mode='Markdown'
-                                )
-                            
-                            settings["last_post"] = now
-                            bot_data.add_post(user_id)
-                            logger.info(f"✅ Автопост в {channel_id}: {topic_key}")
-                            
-                        except Exception as e:
-                            logger.error(f"Ошибка отправки: {e}")
+                                await bot.send_message(chat_id=channel_id, text=full_text)
+                        else:
+                            await bot.send_message(chat_id=channel_id, text=full_text)
+                        
+                        settings["last_post"] = datetime.now()
+                        logger.info(f"✅ Автопост отправлен в канал {channel_id}")
+                        
+                    except Exception as e:
+                        logger.error(f"Ошибка отправки: {e}")
             
-            await asyncio.sleep(min(interval, 30))
+            await asyncio.sleep(min(interval_seconds, 30))
             
         except Exception as e:
-            logger.error(f"Ошибка авто-постинга: {e}")
+            logger.error(f"Ошибка в авто-постинге: {e}")
             await asyncio.sleep(60)
 
-async def start_auto(bot, channel_id: str):
+async def start_auto_posting(bot, channel_id: str):
     if channel_id in bot_data.posting_tasks:
-        old = bot_data.posting_tasks[channel_id]
-        if not old.done():
-            old.cancel()
+        old_task = bot_data.posting_tasks[channel_id]
+        if not old_task.done():
+            old_task.cancel()
     
     task = asyncio.create_task(auto_posting_worker(bot, channel_id))
     bot_data.posting_tasks[channel_id] = task
+    return task
+
+async def stop_auto_posting(channel_id: str):
+    if channel_id in bot_data.posting_tasks:
+        task = bot_data.posting_tasks[channel_id]
+        if not task.done():
+            task.cancel()
+        del bot_data.posting_tasks[channel_id]
 
 # ==================== КЛАВИАТУРЫ ====================
 async def get_main_keyboard(user_id: int):
     keyboard = [
-        [InlineKeyboardButton("📝 Ручной пост", callback_data="write_post")],
+        [InlineKeyboardButton("📝 Написать пост", callback_data="write_post")],
+        [InlineKeyboardButton("🔍 Поиск картинок", callback_data="search_images")],
         [InlineKeyboardButton("📢 Мои каналы", callback_data="my_channels")],
+        [InlineKeyboardButton("🔄 Репосты", callback_data="reposts_menu")],
         [InlineKeyboardButton("⚙️ Автопостинг", callback_data="auto_posting")],
-        [InlineKeyboardButton("🎯 Все темы", callback_data="all_topics")],
         [InlineKeyboardButton("💎 Тарифы", callback_data="tariffs")],
         [InlineKeyboardButton("👤 Профиль", callback_data="profile")],
         [InlineKeyboardButton("📊 Статистика", callback_data="stats")],
@@ -349,43 +432,25 @@ async def get_main_keyboard(user_id: int):
     ]
     return InlineKeyboardMarkup(keyboard)
 
-async def get_topics_keyboard(action: str, channel_id: str = None):
+async def get_topics_keyboard():
     keyboard = []
-    for key, topic in TOPICS.items():
-        callback = f"{action}_{key}"
-        if channel_id:
-            callback = f"{action}_{channel_id}_{key}"
-        keyboard.append([InlineKeyboardButton(f"{topic['emoji']} {topic['name']}", callback_data=callback)])
-    
-    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_main")])
+    for topic_key, topic_data in TOPICS.items():
+        keyboard.append([
+            InlineKeyboardButton(f"{topic_data['emoji']} {topic_data['name']}", callback_data=f"topic_{topic_key}")
+        ])
     return InlineKeyboardMarkup(keyboard)
 
 async def get_interval_keyboard(channel_id: str):
     keyboard = [
+        [InlineKeyboardButton("10 секунд (PRO)", callback_data=f"interval_{channel_id}_10")],
+        [InlineKeyboardButton("30 секунд (BASIC)", callback_data=f"interval_{channel_id}_30")],
         [InlineKeyboardButton("1 минута", callback_data=f"interval_{channel_id}_60")],
         [InlineKeyboardButton("5 минут", callback_data=f"interval_{channel_id}_300")],
         [InlineKeyboardButton("10 минут", callback_data=f"interval_{channel_id}_600")],
         [InlineKeyboardButton("30 минут", callback_data=f"interval_{channel_id}_1800")],
         [InlineKeyboardButton("1 час", callback_data=f"interval_{channel_id}_3600")],
-        [InlineKeyboardButton("3 часа", callback_data=f"interval_{channel_id}_10800")],
-        [InlineKeyboardButton("6 часов", callback_data=f"interval_{channel_id}_21600")],
-        [InlineKeyboardButton("12 часов", callback_data=f"interval_{channel_id}_43200")],
         [InlineKeyboardButton("🔙 Назад", callback_data=f"auto_channel_{channel_id}")]
     ]
-    return InlineKeyboardMarkup(keyboard)
-
-async def get_channels_list_keyboard(user_id: int, action: str):
-    channels = bot_data.get_channels(user_id)
-    keyboard = []
-    
-    for ch in channels:
-        suffix = ""
-        if action == "auto":
-            settings = bot_data.get_auto(ch['id'])
-            suffix = " ✅" if settings and settings.get("active") else " ❌"
-        keyboard.append([InlineKeyboardButton(f"📢 {ch['title']}{suffix}", callback_data=f"{action}_channel_{ch['id']}")])
-    
-    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_main")])
     return InlineKeyboardMarkup(keyboard)
 
 # ==================== ОБРАБОТЧИКИ ====================
@@ -393,25 +458,96 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     bot_data.init_user(user.id, user.username or "", user.first_name or "")
     
-    text = (
+    welcome_text = (
         f"✨ *Привет, {user.first_name}!*\n\n"
-        f"🤖 *Я бот для автопостинга с ИИ*\n\n"
+        f"🤖 *Я бот для автопостинга в Telegram каналы с ИИ*\n\n"
         f"📋 *Мои возможности:*\n"
-        f"• 📝 Ручная и автоматическая публикация\n"
-        f"• 🎯 Более {len(TOPICS)} тем с уникальным контентом\n"
-        f"• 🖼 Поиск и добавление картинок\n"
-        f"• 📊 Объемные информативные посты\n"
-        f"• ⏱ Гибкие интервалы (от 1 минуты)\n"
-        f"• 💎 3 бесплатных тарифа\n\n"
+        f"• 📝 Ручная публикация постов\n"
+        f"• 🔍 Поиск и публикация картинок\n"
+        f"• ⚙️ Автопостинг с интервалом от 10 сек\n"
+        f"• 🎯 10+ тем с готовыми постами\n"
+        f"• 🖼 Автоматические картинки к постам\n"
+        f"• 💎 Бесплатные тарифы с разными лимитами\n\n"
         f"🚀 *Как начать:*\n"
-        f"1️⃣ Добавьте меня в канал как админа\n"
-        f"2️⃣ Добавьте канал в бота (кнопка ниже)\n"
-        f"3️⃣ Настройте автопостинг\n\n"
+        f"1️⃣ Добавьте меня в канал как администратора\n"
+        f"2️⃣ Добавьте канал через кнопку 'Мои каналы'\n"
+        f"3️⃣ Настройте автопостинг в меню\n\n"
         f"💡 *Все тарифы бесплатны!*"
     )
     
     keyboard = await get_main_keyboard(user.id)
-    await update.message.reply_text(text, parse_mode='Markdown', reply_markup=keyboard)
+    await update.message.reply_text(welcome_text, parse_mode='Markdown', reply_markup=keyboard)
+
+async def search_images(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    await query.edit_message_text(
+        "🔍 *Поиск картинок*\n\n"
+        "Отправьте ключевое слово для поиска:\n"
+        "Пример: `кот`, `природа`, `технологии`",
+        parse_mode='Markdown'
+    )
+    context.user_data['searching_image'] = True
+
+async def handle_image_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    query = update.message.text.strip()
+    
+    # Проверяем тариф
+    tariff = bot_data.user_tariffs.get(user.id, "free")
+    if tariff != "pro":
+        await update.message.reply_text("❌ Поиск картинок доступен только на PRO тарифе")
+        context.user_data['searching_image'] = False
+        return
+    
+    await update.message.reply_text(f"🔍 Ищу картинки по запросу: {query}...")
+    
+    # Ищем картинки
+    channels = bot_data.get_channels(user.id)
+    if not channels:
+        await update.message.reply_text("❌ Сначала добавьте канал в меню 'Мои каналы'")
+        context.user_data['searching_image'] = False
+        return
+    
+    keyboard = []
+    for ch in channels:
+        keyboard.append([
+            InlineKeyboardButton(f"📢 {ch['title']}", callback_data=f"send_image_{ch['id']}_{query}")
+        ])
+    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_main")])
+    
+    await update.message.reply_text(
+        f"🔍 Найдены картинки по запросу: {query}\n\nВыберите канал для публикации:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    context.user_data['searching_image'] = False
+
+async def send_image_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    parts = query.data.split("_")
+    channel_id = parts[2]
+    search_query = parts[3]
+    
+    await query.edit_message_text(f"🖼 Ищу картинку по запросу '{search_query}'...")
+    
+    # Получаем картинку
+    image_url = await bot_images.search_image(search_query)
+    
+    if image_url:
+        try:
+            await context.bot.send_photo(chat_id=channel_id, photo=image_url, caption=f"🖼 Поиск: {search_query}\n\n✨ Подписывайтесь на канал!")
+            await query.edit_message_text(f"✅ Картинка успешно отправлена в канал!")
+        except Exception as e:
+            await query.edit_message_text(f"❌ Ошибка: {str(e)}")
+    else:
+        await query.edit_message_text("❌ Не удалось найти картинку")
+    
+    await asyncio.sleep(2)
+    keyboard = await get_main_keyboard(query.from_user.id)
+    await query.message.reply_text("🎯 Главное меню:", reply_markup=keyboard)
 
 async def add_channel_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -420,45 +556,48 @@ async def add_channel_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(
         "📢 *Добавление канала*\n\n"
         "1️⃣ Добавьте бота в канал как администратора\n"
-        "2️⃣ Отправьте ID или ссылку\n\n"
-        "📝 Примеры:\n"
-        "• `@channel_name`\n"
-        "• `https://t.me/channel_name`\n\n"
-        "Отправьте ссылку:",
+        "2️⃣ Отправьте ID канала или ссылку\n\n"
+        "📝 Как получить ID:\n"
+        "• `@channel_username`\n"
+        "• `https://t.me/channel_username`\n\n"
+        "Отправьте ссылку на канал:",
         parse_mode='Markdown'
     )
-    context.user_data['adding'] = True
+    context.user_data['adding_channel'] = True
 
-async def process_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def process_add_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     channel_input = update.message.text.strip()
     
+    channel_id = channel_input
     if "t.me/" in channel_input:
-        channel_input = "@" + channel_input.split("t.me/")[-1]
+        channel_id = "@" + channel_input.split("t.me/")[-1]
     
     try:
-        chat = await context.bot.get_chat(chat_id=channel_input)
+        chat = await context.bot.get_chat(chat_id=channel_id)
         
         if chat.type not in ['channel', 'supergroup']:
             await update.message.reply_text("❌ Это не канал")
             return
         
-        success, msg = bot_data.add_channel(user.id, str(chat.id), chat.title)
+        success, message = bot_data.add_channel(user.id, str(chat.id), chat.title)
         
         if success:
             await update.message.reply_text(
-                f"✅ {msg}\n\n📢 {chat.title}\n🆔 {chat.id}",
+                f"✅ *{message}*\n\n"
+                f"📢 Название: {chat.title}\n"
+                f"🆔 ID: {chat.id}",
                 parse_mode='Markdown'
             )
         else:
-            await update.message.reply_text(f"❌ {msg}")
+            await update.message.reply_text(f"❌ {message}")
         
-        context.user_data['adding'] = False
+        context.user_data['adding_channel'] = False
         keyboard = await get_main_keyboard(user.id)
         await update.message.reply_text("🎯 Главное меню:", reply_markup=keyboard)
         
     except Exception as e:
-        await update.message.reply_text(f"❌ Ошибка: {str(e)}")
+        await update.message.reply_text(f"❌ *Ошибка:* {str(e)}", parse_mode='Markdown')
 
 async def write_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -469,12 +608,14 @@ async def write_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("❌ Сначала добавьте канал")
         return
     
-    keyboard = []
-    for ch in channels:
-        keyboard.append([InlineKeyboardButton(f"📢 {ch['title']}", callback_data=f"post_to_{ch['id']}")])
+    keyboard = [[InlineKeyboardButton(f"📢 {ch['title']}", callback_data=f"post_to_{ch['id']}")] for ch in channels]
     keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_main")])
     
-    await query.edit_message_text("📝 Выберите канал:", reply_markup=InlineKeyboardMarkup(keyboard))
+    await query.edit_message_text(
+        "📝 *Выберите канал для публикации:*",
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
 async def send_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -483,14 +624,63 @@ async def send_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
     channel_id = query.data.replace("post_to_", "")
     context.user_data['post_channel'] = channel_id
     
-    # Показываем темы для быстрого поста
-    keyboard = await get_topics_keyboard("quick", channel_id)
+    # Показываем выбор типа поста
+    keyboard = [
+        [InlineKeyboardButton("📝 Текст", callback_data="post_type_text")],
+        [InlineKeyboardButton("🖼 Текст + картинка", callback_data="post_type_image")],
+        [InlineKeyboardButton("🔙 Назад", callback_data="write_post")]
+    ]
     await query.edit_message_text(
-        "📝 *Напишите пост или выберите тему:*",
+        "📝 *Выберите тип поста:*",
         parse_mode='Markdown',
-        reply_markup=keyboard
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
-    context.user_data['awaiting_post'] = True
+    context.user_data['post_type_selection'] = True
+
+async def handle_post_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    post_type = query.data.replace("post_type_", "")
+    context.user_data['post_type'] = post_type
+    
+    if post_type == "text":
+        await query.edit_message_text("📝 *Напишите текст поста:*", parse_mode='Markdown')
+        context.user_data['awaiting_post'] = True
+    elif post_type == "image":
+        await query.edit_message_text(
+            "🖼 *Отправьте пост с картинкой*\n\n"
+            "Отправьте фото с подписью или команду /cancel",
+            parse_mode='Markdown'
+        )
+        context.user_data['awaiting_image_post'] = True
+
+async def handle_image_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    channel_id = context.user_data.get('post_channel')
+    
+    if not channel_id:
+        await update.message.reply_text("❌ Ошибка")
+        return
+    
+    tariff = bot_data.user_tariffs.get(user.id, "free")
+    if tariff != "pro":
+        await update.message.reply_text("❌ Посты с картинками доступны только на PRO тарифе")
+        return
+    
+    caption = update.message.caption or "📸 Новый пост!"
+    photo = update.message.photo[-1]
+    
+    try:
+        await context.bot.send_photo(chat_id=channel_id, photo=photo.file_id, caption=caption)
+        await update.message.reply_text("✅ Пост с картинкой опубликован!")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка: {str(e)}")
+    
+    context.user_data['awaiting_image_post'] = False
+    context.user_data['post_channel'] = None
+    keyboard = await get_main_keyboard(user.id)
+    await update.message.reply_text("🎯 Главное меню:", reply_markup=keyboard)
 
 async def handle_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -500,106 +690,80 @@ async def handle_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Ошибка")
         return
     
-    if not bot_data.can_post(user.id):
-        await update.message.reply_text("❌ Лимит постов на сегодня")
-        return
-    
-    text = update.message.text
+    message_text = update.message.text
     
     try:
-        await context.bot.send_message(chat_id=channel_id, text=text, parse_mode='Markdown')
-        await update.message.reply_text("✅ Пост опубликован!")
-        bot_data.add_post(user.id)
+        await context.bot.send_message(chat_id=channel_id, text=message_text)
+        await update.message.reply_text("✅ Пост успешно опубликован!")
     except Exception as e:
         await update.message.reply_text(f"❌ Ошибка: {str(e)}")
     
     context.user_data['awaiting_post'] = False
+    context.user_data['post_channel'] = None
     keyboard = await get_main_keyboard(user.id)
     await update.message.reply_text("🎯 Главное меню:", reply_markup=keyboard)
-
-async def quick_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    parts = query.data.split("_")
-    channel_id = parts[2]
-    topic_key = parts[3]
-    user_id = query.from_user.id
-    
-    if not bot_data.can_post(user_id):
-        await query.edit_message_text("❌ Лимит постов на сегодня")
-        return
-    
-    topic = TOPICS.get(topic_key, TOPICS["technology"])
-    post_text = random.choice(topic.get("posts", []))
-    hashtags = " " + " ".join(topic.get("hashtags", []))
-    full_text = post_text + hashtags
-    
-    try:
-        # Пробуем добавить картинку
-        image_url = await search_image(topic_key)
-        
-        if image_url:
-            await context.bot.send_photo(
-                chat_id=channel_id,
-                photo=image_url,
-                caption=full_text,
-                parse_mode='Markdown'
-            )
-        else:
-            await context.bot.send_message(
-                chat_id=channel_id,
-                text=full_text,
-                parse_mode='Markdown'
-            )
-        
-        bot_data.add_post(user_id)
-        await query.edit_message_text(f"✅ Пост на тему '{topic['name']}' опубликован!")
-    except Exception as e:
-        await query.edit_message_text(f"❌ Ошибка: {str(e)}")
-    
-    await asyncio.sleep(2)
-    await back_to_main(update, context)
 
 async def auto_posting_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    keyboard = await get_channels_list_keyboard(query.from_user.id, "auto")
+    channels = bot_data.get_channels(query.from_user.id)
+    if not channels:
+        await query.edit_message_text("❌ Сначала добавьте канал")
+        return
+    
+    keyboard = []
+    for ch in channels:
+        settings = bot_data.get_auto_settings(ch['id'])
+        status = "✅" if settings and settings.get("is_active") else "❌"
+        keyboard.append([InlineKeyboardButton(f"{status} {ch['title']}", callback_data=f"auto_channel_{ch['id']}")])
+    
+    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_main")])
     await query.edit_message_text(
-        "⚙️ *Выберите канал для автопостинга*\n\n✅ - активен ❌ - неактивен",
+        "⚙️ *Настройка автопостинга*\n\n"
+        "✅ - активен\n"
+        "❌ - неактивен",
         parse_mode='Markdown',
-        reply_markup=keyboard
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-async def auto_channel_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def configure_auto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
     channel_id = query.data.replace("auto_channel_", "")
-    context.user_data['auto_channel'] = channel_id
+    settings = bot_data.get_auto_settings(channel_id)
     
-    settings = bot_data.get_auto(channel_id)
-    topic_key = settings.get("topic", "technology") if settings else "technology"
-    interval = settings.get("interval", 3600) if settings else 3600
-    active = settings.get("active", False) if settings else False
+    if settings:
+        is_active = settings.get("is_active", False)
+        interval = settings.get("interval", 60)
+        topic = settings.get("topic", "technology")
+        include_images = settings.get("include_images", True)
+        topic_name = TOPICS.get(topic, TOPICS["technology"])["name"]
+    else:
+        is_active = False
+        interval = 60
+        topic = "technology"
+        include_images = True
+        topic_name = TOPICS["technology"]["name"]
     
-    topic_name = TOPICS.get(topic_key, TOPICS["technology"])["name"]
-    interval_min = interval // 60
+    status_text = "✅ АКТИВЕН" if is_active else "❌ НЕАКТИВЕН"
+    interval_min = interval // 60 if interval >= 60 else f"{interval} сек"
     
     text = (
         f"⚙️ *Настройки автопостинга*\n\n"
         f"📢 Канал: {channel_id}\n"
-        f"🔄 Статус: {'✅ АКТИВЕН' if active else '❌ НЕАКТИВЕН'}\n"
+        f"🔄 Статус: {status_text}\n"
         f"📝 Тема: {topic_name}\n"
-        f"⏱ Интервал: {interval_min} мин\n\n"
-        f"Выберите действие:"
+        f"⏱ Интервал: {interval_min}\n"
+        f"🖼 Картинки: {'✅ Да' if include_images else '❌ Нет'}\n\n"
     )
     
     keyboard = [
-        [InlineKeyboardButton("🔄 Включить/Выключить", callback_data=f"toggle_{channel_id}")],
-        [InlineKeyboardButton("📝 Выбрать тему", callback_data=f"select_topic_{channel_id}")],
-        [InlineKeyboardButton("⏱ Выбрать интервал", callback_data=f"select_interval_{channel_id}")],
+        [InlineKeyboardButton("🔄 Включить/Выключить", callback_data=f"toggle_auto_{channel_id}")],
+        [InlineKeyboardButton("🎯 Выбрать тему", callback_data=f"select_topic_auto_{channel_id}")],
+        [InlineKeyboardButton("⏱ Интервал", callback_data=f"change_interval_{channel_id}")],
+        [InlineKeyboardButton("🖼 Картинки", callback_data=f"toggle_images_{channel_id}")],
         [InlineKeyboardButton("🔙 Назад", callback_data="auto_posting")]
     ]
     
@@ -609,131 +773,147 @@ async def select_topic_for_auto(update: Update, context: ContextTypes.DEFAULT_TY
     query = update.callback_query
     await query.answer()
     
-    channel_id = query.data.replace("select_topic_", "")
-    keyboard = await get_topics_keyboard("set_topic", channel_id)
-    await query.edit_message_text("📝 Выберите тему:", reply_markup=keyboard)
+    channel_id = query.data.replace("select_topic_auto_", "")
+    context.user_data['topic_channel'] = channel_id
+    
+    keyboard = [[InlineKeyboardButton(f"{topic['emoji']} {topic['name']}", callback_data=f"set_topic_{channel_id}_{key}")] 
+                for key, topic in TOPICS.items()]
+    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data=f"auto_channel_{channel_id}")])
+    
+    await query.edit_message_text(
+        "📝 *Выберите тему для автопостинга:*",
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
-async def set_auto_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def set_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
     parts = query.data.split("_")
     channel_id = parts[2]
-    topic_key = parts[3]
+    topic = parts[3]
+    user_id = query.from_user.id
     
-    settings = bot_data.get_auto(channel_id)
+    settings = bot_data.get_auto_settings(channel_id)
     if settings:
-        settings["topic"] = topic_key
+        settings["topic"] = topic
     else:
-        bot_data.set_auto(channel_id, query.from_user.id, topic_key, 3600)
+        bot_data.set_auto_posting(channel_id, user_id, topic, 60, False)
     
-    await query.edit_message_text(f"✅ Тема установлена: {TOPICS[topic_key]['name']}")
-    await asyncio.sleep(2)
-    await auto_channel_settings(update, context)
+    topic_name = TOPICS.get(topic, TOPICS["technology"])["name"]
+    await query.edit_message_text(f"✅ Тема установлена: {topic_name}")
+    await asyncio.sleep(1)
+    await configure_auto(update, context)
 
-async def select_interval_for_auto(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def toggle_auto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    channel_id = query.data.replace("select_interval_", "")
-    keyboard = await get_interval_keyboard(channel_id)
-    await query.edit_message_text("⏱ Выберите интервал:", reply_markup=keyboard)
+    channel_id = query.data.replace("toggle_auto_", "")
+    settings = bot_data.get_auto_settings(channel_id)
+    
+    if not settings:
+        await query.edit_message_text("❌ Сначала настройте тему и интервал")
+        return
+    
+    is_active = not settings.get("is_active", False)
+    
+    if is_active:
+        tariff = bot_data.user_tariffs.get(settings['user_id'], "free")
+        min_interval = TARIFFS[tariff]["min_interval"]
+        current_interval = settings.get("interval", 60)
+        
+        if current_interval < min_interval:
+            await query.edit_message_text(f"❌ Для вашего тарифа минимальный интервал: {min_interval} сек")
+            return
+        
+        bot_data.toggle_auto(channel_id, True)
+        await start_auto_posting(context.bot, channel_id)
+        await query.edit_message_text(f"✅ Автопостинг ВКЛЮЧЕН")
+    else:
+        bot_data.toggle_auto(channel_id, False)
+        await stop_auto_posting(channel_id)
+        await query.edit_message_text(f"❌ Автопостинг ВЫКЛЮЧЕН")
+    
+    await asyncio.sleep(2)
+    await configure_auto(update, context)
 
-async def set_auto_interval(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def toggle_images(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    channel_id = query.data.replace("toggle_images_", "")
+    settings = bot_data.get_auto_settings(channel_id)
+    
+    if settings:
+        settings["include_images"] = not settings.get("include_images", True)
+        status = "включены" if settings["include_images"] else "выключены"
+        await query.edit_message_text(f"🖼 Картинки {status}")
+    
+    await asyncio.sleep(1)
+    await configure_auto(update, context)
+
+async def change_interval(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    channel_id = query.data.replace("change_interval_", "")
+    keyboard = await get_interval_keyboard(channel_id)
+    await query.edit_message_text("⏱ *Выберите интервал:*", parse_mode='Markdown', reply_markup=keyboard)
+
+async def set_interval(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
     parts = query.data.split("_")
     channel_id = parts[1]
     interval = int(parts[2])
-    
     user_id = query.from_user.id
+    
     tariff = bot_data.user_tariffs.get(user_id, "free")
     min_interval = TARIFFS[tariff]["min_interval"]
     
     if interval < min_interval:
-        await query.edit_message_text(f"❌ Минимальный интервал: {min_interval // 60} мин")
+        await query.edit_message_text(f"❌ Для вашего тарифа минимальный интервал: {min_interval} сек")
+        await asyncio.sleep(2)
+        await change_interval(update, context)
         return
     
-    settings = bot_data.get_auto(channel_id)
+    settings = bot_data.get_auto_settings(channel_id)
     if settings:
         settings["interval"] = interval
     else:
-        bot_data.set_auto(channel_id, user_id, "technology", interval)
+        bot_data.set_auto_posting(channel_id, user_id, "technology", interval, False)
     
-    await query.edit_message_text(f"✅ Интервал: {interval // 60} минут")
-    await asyncio.sleep(2)
-    await auto_channel_settings(update, context)
-
-async def toggle_auto(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    channel_id = query.data.replace("toggle_", "")
-    settings = bot_data.get_auto(channel_id)
-    
-    if not settings:
-        await query.edit_message_text("❌ Сначала настройте тему и интервал")
-        return
-    
-    new_status = not settings.get("active", False)
-    
-    if new_status:
-        # Проверка лимитов
-        user_id = settings.get("user_id")
-        if bot_data.can_post(user_id):
-            settings["active"] = True
-            await start_auto(context.bot, channel_id)
-            await query.edit_message_text("✅ Автопостинг ВКЛЮЧЕН")
-        else:
-            await query.edit_message_text("❌ Лимит постов на сегодня")
-            return
-    else:
-        settings["active"] = False
-        await query.edit_message_text("❌ Автопостинг ВЫКЛЮЧЕН")
-    
-    await asyncio.sleep(2)
-    await auto_channel_settings(update, context)
-
-async def show_all_topics(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    text = "🎯 *Все доступные темы*\n\n"
-    for key, topic in TOPICS.items():
-        text += f"{topic['emoji']} **{topic['name']}**\n"
-        text += f"📝 Постов в теме: {len(topic['posts'])}\n"
-        text += f"🏷 Хэштеги: {', '.join(topic['hashtags'][:2])}\n\n"
-    
-    text += "💡 *Совет:* Выберите тему в настройках автопостинга"
-    
-    keyboard = [[InlineKeyboardButton("🔙 Назад", callback_data="back_main")]]
-    await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+    interval_display = f"{interval // 60} мин" if interval >= 60 else f"{interval} сек"
+    await query.edit_message_text(f"✅ Интервал установлен: {interval_display}")
+    await asyncio.sleep(1)
+    await configure_auto(update, context)
 
 async def show_tariffs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
     user_id = query.from_user.id
-    current = bot_data.user_tariffs.get(user_id, "free")
+    current_tariff = bot_data.user_tariffs.get(user_id, "free")
     
-    text = "💎 *Тарифы*\n\n"
-    for key, t in TARIFFS.items():
-        marker = "✅ *ТЕКУЩИЙ* " if key == current else ""
-        text += f"{marker}{t['name']}\n"
-        text += f"• Каналов: {t['max_channels']}\n"
-        text += f"• Интервал: от {t['min_interval']} сек\n"
-        text += f"• Постов/день: {t['max_posts_per_day']}\n"
-        for f in t['features']:
-            text += f"  {f}\n"
+    text = "💎 *Доступные тарифы*\n\n"
+    for tariff_key, tariff_info in TARIFFS.items():
+        is_current = "✅ *ТЕКУЩИЙ* " if tariff_key == current_tariff else ""
+        text += f"{is_current}{tariff_info['name']}\n"
+        text += f"⏱ Мин. интервал: {tariff_info['min_interval']} сек\n"
+        text += f"📢 Макс. каналов: {tariff_info['max_channels']}\n"
+        text += f"📝 Постов в день: {tariff_info['max_posts_per_day']}\n"
+        text += "✨ Возможности:\n"
+        for feature in tariff_info['features']:
+            text += f"  {feature}\n"
         text += "\n"
     
-    text += "🎁 *Все тарифы бесплатны!*"
+    text += "🎁 *Все тарифы полностью бесплатны!*"
     
-    keyboard = []
-    for key in TARIFFS:
-        if key != current:
-            keyboard.append([InlineKeyboardButton(f"Выбрать {TARIFFS[key]['name']}", callback_data=f"tariff_{key}")])
+    keyboard = [[InlineKeyboardButton(tariff_info['name'], callback_data=f"select_tariff_{key}")] 
+                for key, tariff_info in TARIFFS.items()]
     keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_main")])
     
     await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
@@ -742,14 +922,21 @@ async def select_tariff(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    tariff_key = query.data.replace("tariff_", "")
+    tariff_key = query.data.replace("select_tariff_", "")
     user_id = query.from_user.id
     
     bot_data.user_tariffs[user_id] = tariff_key
     
-    await query.edit_message_text(f"✅ Тариф изменен на {TARIFFS[tariff_key]['name']}")
+    await query.edit_message_text(
+        f"✅ *Тариф обновлен!*\n\n"
+        f"Ваш тариф: {TARIFFS[tariff_key]['name']}\n\n"
+        f"Теперь доступны новые возможности!",
+        parse_mode='Markdown'
+    )
+    
     await asyncio.sleep(2)
-    await show_tariffs(update, context)
+    keyboard = await get_main_keyboard(user_id)
+    await query.message.reply_text("🎯 Главное меню:", reply_markup=keyboard)
 
 async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -760,23 +947,16 @@ async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tariff = bot_data.user_tariffs.get(user_id, "free")
     channels = bot_data.get_channels(user_id)
     
-    active_auto = 0
-    for ch in channels:
-        settings = bot_data.get_auto(ch['id'])
-        if settings and settings.get("active"):
-            active_auto += 1
-    
-    today_posts = bot_data.last_posts.get(user_id, {}).get("count", 0)
-    max_posts = TARIFFS[tariff]["max_posts_per_day"]
+    active_auto = sum(1 for ch in channels if bot_data.get_auto_settings(ch['id']) and bot_data.get_auto_settings(ch['id']).get("is_active"))
     
     text = (
-        f"👤 *Профиль*\n\n"
-        f"📝 {user.get('first_name')}\n"
+        f"👤 *Ваш профиль*\n\n"
+        f"📝 Имя: {user.get('first_name', 'Unknown')}\n"
         f"💎 Тариф: {TARIFFS[tariff]['name']}\n"
         f"📢 Каналов: {len(channels)}/{TARIFFS[tariff]['max_channels']}\n"
-        f"⚙️ Автопостингов: {active_auto}\n"
-        f"📊 Постов сегодня: {today_posts}/{max_posts}\n"
-        f"📅 В системе: {user.get('joined', datetime.now()).strftime('%d.%m.%Y')}"
+        f"⚙️ Активных автопостингов: {active_auto}\n"
+        f"📅 В системе с: {user.get('joined', datetime.now()).strftime('%d.%m.%Y')}\n\n"
+        f"Чтобы сменить тариф - используйте меню 'Тарифы'"
     )
     
     keyboard = [[InlineKeyboardButton("🔙 Назад", callback_data="back_main")]]
@@ -788,20 +968,22 @@ async def show_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     user_id = query.from_user.id
     channels = bot_data.get_channels(user_id)
+    auto_settings = bot_data.auto_posting
     
-    text = f"📊 *Статистика*\n\n"
-    text += f"📢 Всего каналов: {len(channels)}\n\n"
+    auto_for_user = [s for s in auto_settings.values() if s.get("user_id") == user_id]
+    active_auto = [s for s in auto_for_user if s.get("is_active")]
     
-    for ch in channels:
-        settings = bot_data.get_auto(ch['id'])
-        if settings:
-            topic = TOPICS.get(settings.get("topic"), TOPICS["technology"])
-            status = "✅" if settings.get("active") else "❌"
-            interval = settings.get("interval", 3600) // 60
-            text += f"{status} {ch['title']}\n"
-            text += f"   📝 {topic['name']}, ⏱ {interval} мин\n"
-    
-    text += "\n💡 Давай автоматизации - больше охватов!"
+    text = (
+        f"📊 *Статистика*\n\n"
+        f"📢 Всего каналов: {len(channels)}\n"
+        f"⚙️ Настроено автопостингов: {len(auto_for_user)}\n"
+        f"✅ Активных автопостингов: {len(active_auto)}\n\n"
+        f"📈 Сегодня опубликовано: {bot_data.daily_post_counts.get(user_id, {}).get('count', 0)} постов\n\n"
+        f"💡 *Рекомендации:*\n"
+        f"• Используйте разные темы\n"
+        f"• Для лучшего охвата ставьте интервал 30-60 мин\n"
+        f"• PRO тариф дает максимум возможностей"
+    )
     
     keyboard = [[InlineKeyboardButton("🔙 Назад", callback_data="back_main")]]
     await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
@@ -815,10 +997,11 @@ async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
-    await update.message.reply_text("❌ Отменено")
+    await update.message.reply_text("❌ Действие отменено")
     keyboard = await get_main_keyboard(update.effective_user.id)
     await update.message.reply_text("🎯 Главное меню:", reply_markup=keyboard)
 
+# ==================== ОСНОВНОЙ ОБРАБОТЧИК ====================
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
@@ -827,45 +1010,72 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await back_to_main(update, context)
     elif data == "write_post":
         await write_post(update, context)
+    elif data == "search_images":
+        await search_images(update, context)
     elif data == "my_channels":
-        keyboard = await get_channels_list_keyboard(query.from_user.id, "channels")
-        await query.edit_message_text("📢 Ваши каналы:", reply_markup=keyboard)
+        keyboard = await get_channels_keyboard(query.from_user.id)
+        await query.edit_message_text("📢 *Ваши каналы*", parse_mode='Markdown', reply_markup=keyboard)
     elif data == "add_channel":
         await add_channel_start(update, context)
     elif data == "auto_posting":
         await auto_posting_menu(update, context)
-    elif data == "all_topics":
-        await show_all_topics(update, context)
     elif data == "tariffs":
         await show_tariffs(update, context)
     elif data == "profile":
         await show_profile(update, context)
     elif data == "stats":
         await show_stats(update, context)
+    elif data == "reposts_menu":
+        await query.edit_message_text("🔄 Репосты будут доступны в следующем обновлении", parse_mode='Markdown')
     elif data == "help":
-        await show_all_topics(update, context)
+        help_text = (
+            "ℹ️ *Помощь*\n\n"
+            "📋 *Функции бота:*\n"
+            "• 📝 Ручная публикация постов\n"
+            "• 🔍 Поиск и публикация картинок\n"
+            "• ⚙️ Автопостинг с интервалом от 10 сек\n"
+            "• 🎯 10+ тем с готовыми постами\n"
+            "• 🖼 Автоматические картинки к постам\n\n"
+            "💡 *Советы:*\n"
+            "• Для автопостинга выберите тему и интервал\n"
+            "• PRO тариф дает доступ к картинкам\n"
+            "• Настройте интервал под свою аудиторию\n\n"
+            "🚀 *Активные тарифы:*\n"
+            "• FREE - базовые функции\n"
+            "• BASIC - больше каналов и постов\n"
+            "• PRO - все возможности\n\n"
+            "❓ Вопросы: @support_bot"
+        )
+        await query.edit_message_text(help_text, parse_mode='Markdown')
     elif data.startswith("post_to_"):
         await send_post(update, context)
+    elif data.startswith("post_type_"):
+        await handle_post_type(update, context)
     elif data.startswith("auto_channel_"):
-        await auto_channel_settings(update, context)
-    elif data.startswith("select_topic_"):
+        await configure_auto(update, context)
+    elif data.startswith("select_topic_auto_"):
         await select_topic_for_auto(update, context)
     elif data.startswith("set_topic_"):
-        await set_auto_topic(update, context)
-    elif data.startswith("select_interval_"):
-        await select_interval_for_auto(update, context)
-    elif data.startswith("interval_"):
-        await set_auto_interval(update, context)
-    elif data.startswith("toggle_"):
+        await set_topic(update, context)
+    elif data.startswith("toggle_auto_"):
         await toggle_auto(update, context)
-    elif data.startswith("tariff_"):
+    elif data.startswith("toggle_images_"):
+        await toggle_images(update, context)
+    elif data.startswith("change_interval_"):
+        await change_interval(update, context)
+    elif data.startswith("interval_"):
+        await set_interval(update, context)
+    elif data.startswith("select_tariff_"):
         await select_tariff(update, context)
-    elif data.startswith("quick_"):
-        await quick_post(update, context)
-    elif data.startswith("channels_channel_"):
-        await query.answer()
-    else:
-        await query.answer()
+    elif data.startswith("send_image_"):
+        await send_image_post(update, context)
+
+async def get_channels_keyboard(user_id: int):
+    channels = bot_data.get_channels(user_id)
+    keyboard = [[InlineKeyboardButton(f"📢 {ch['title']}", callback_data=f"channel_{ch['id']}")] for ch in channels]
+    keyboard.append([InlineKeyboardButton("➕ Добавить канал", callback_data="add_channel")])
+    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_main")])
+    return InlineKeyboardMarkup(keyboard)
 
 # ==================== ЗАПУСК ====================
 def main():
@@ -879,21 +1089,26 @@ def main():
     # Обработчики
     application.add_handler(MessageHandler(
         filters.TEXT & ~filters.COMMAND,
-        lambda u, c: process_add(u, c) if c.user_data.get('adding')
+        lambda u, c: process_add_channel(u, c) if c.user_data.get('adding_channel')
         else (handle_post(u, c) if c.user_data.get('awaiting_post')
-        else None)
+        else (handle_image_search(u, c) if c.user_data.get('searching_image')
+        else None))
     ))
     
-    # Callback
+    application.add_handler(MessageHandler(
+        filters.PHOTO,
+        lambda u, c: handle_image_post(u, c) if c.user_data.get('awaiting_image_post') else None
+    ))
+    
     application.add_handler(CallbackQueryHandler(handle_callback))
     
-    logger.info("🚀 Бот с ИИ и поиском картинок запущен!")
-    logger.info(f"📚 Доступно {len(TOPICS)} тем с контентом")
-    logger.info("🖼 Поддержка картинок к постам")
+    logger.info("🚀 Бот для автопостинга запущен!")
+    logger.info("✅ 10+ тем с готовыми постами")
+    logger.info("🖼 Поиск и публикация картинок")
+    logger.info("⚡ Интервал автопостинга от 10 секунд")
     logger.info("💎 Все тарифы бесплатны!")
     
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
     main()
-    
