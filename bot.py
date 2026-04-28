@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import time
 import sqlite3
 from datetime import datetime, timedelta
 from typing import Dict, Optional, List
@@ -13,8 +12,7 @@ from telegram.ext import (
     MessageHandler,
     CallbackQueryHandler,
     ContextTypes,
-    filters,
-    JobQueue
+    filters
 )
 
 # Настройка логирования
@@ -50,24 +48,24 @@ def init_db():
                   added_date TIMESTAMP,
                   status TEXT DEFAULT 'active')''')
     
-    # Таблица подписок
+    # Таблица тарифов
     c.execute('''CREATE TABLE IF NOT EXISTS subscriptions
                  (user_id INTEGER PRIMARY KEY,
                   tariff TEXT DEFAULT 'free',
                   start_date TIMESTAMP,
-                  end_date TIMESTAMP,
                   max_channels INTEGER DEFAULT 2)''')
     
-    # Таблица источников для репостов
-    c.execute('''CREATE TABLE IF NOT EXISTS sources
+    # Таблица настроек автопостинга
+    c.execute('''CREATE TABLE IF NOT EXISTS auto_posting
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   user_id INTEGER,
-                  source_channel_id TEXT,
-                  source_channel_title TEXT,
-                  target_channel_id TEXT,
-                  last_post_id INTEGER DEFAULT 0,
-                  is_active INTEGER DEFAULT 1,
-                  added_date TIMESTAMP)''')
+                  channel_id TEXT,
+                  is_active INTEGER DEFAULT 0,
+                  topic TEXT,
+                  interval_minutes INTEGER DEFAULT 60,
+                  last_post_time TIMESTAMP,
+                  next_post_time TIMESTAMP,
+                  FOREIGN KEY (user_id) REFERENCES users (user_id))''')
     
     # Таблица постов
     c.execute('''CREATE TABLE IF NOT EXISTS posts
@@ -78,98 +76,113 @@ def init_db():
                   post_type TEXT,
                   posted_time TIMESTAMP)''')
     
-    # Таблица настроек автопостинга
-    c.execute('''CREATE TABLE IF NOT EXISTS auto_posting
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  user_id INTEGER,
-                  channel_id TEXT,
-                  channel_title TEXT,
-                  topic TEXT,
-                  is_active INTEGER DEFAULT 0,
-                  interval_minutes INTEGER DEFAULT 60,
-                  last_post_time TIMESTAMP,
-                  keywords TEXT)''')
-    
     conn.commit()
     conn.close()
 
 init_db()
-
-# ==================== ТЕМЫ ДЛЯ КОНТЕНТА ====================
-TOPICS = {
-    "technology": {
-        "name": "💻 Технологии",
-        "posts": [
-            "🔬 *Новый прорыв в ИИ!* Сегодня нейросети могут генерировать видео по текстовому описанию. Технологии развиваются с невероятной скоростью! А вы следите за новинками? #технологии #ai",
-            "📱 *Топ-5 полезных приложений 2024*\n\n1. Приложение для заметок с ИИ\n2. Менеджер паролей нового поколения\n3. Фитнес-трекер с анализом сна\n4. Редактор фото на нейросетях\n5. Органайзер задач\n\nКакие приложения используете вы?",
-            "💡 *Лайфхак для программистов*\n\nИспользуйте GitHub Copilot - ИИ-помощник пишет код за вас! Экономит до 50% времени разработки. Кто уже пробовал?",
-            "🚀 *Будущее уже здесь* \n\nДроны-доставщики, роботы-помощники, умные дома - это не фантастика, а реальность 2024 года. Что из этого уже есть у вас?",
-            "🎮 *Игровые новости*\n\nВышло обновление с трассировкой лучей для популярных игр. Графика стала еще реалистичнее! Какие игры проходите сейчас?"
-        ]
-    },
-    "business": {
-        "name": "📊 Бизнес",
-        "posts": [
-            "💼 *5 советов для начинающих предпринимателей*\n\n1. Изучите рынок\n2. Составьте бизнес-план\n3. Найдите первых клиентов\n4. Автоматизируйте процессы\n5. Не бойтесь ошибок\n\nВаш первый бизнес - какой он?",
-            "📈 *Тренды 2024 в бизнесе*\n\n• Искусственный интеллект\n• Удаленная работа\n• Экологичность\n• Персонализация\n• Маркетплейсы\n\nЧто из этого актуально для вас?",
-            "💰 *Как привлечь инвестиции*\n\n• Подготовьте качественную презентацию\n• Покажите финансовую модель\n• Расскажите о команде\n• Продемонстрируйте первые продажи\n\nГотовы к инвестициям?",
-            "📊 *Ключевые метрики бизнеса*\n\n✔️ CAC - стоимость привлечения клиента\n✔️ LTV - пожизненная ценность клиента\n✔️ ROI - возврат инвестиций\n✔️ Churn rate - отток клиентов\n\nКакие метрики отслеживаете?",
-            "🎯 *Маркетинг 2024*\n\nКонтент-маркетинг, TikTok, нейросети, чат-боты - вот главные тренды продвижения. Что работает лучше всего для вас?"
-        ]
-    },
-    "health": {
-        "name": "⚕️ Здоровье",
-        "posts": [
-            "🥗 *Правильное питание: 5 простых правил*\n\n1. Пейте воду (30 мл на 1 кг веса)\n2. Ешьте больше овощей\n3. Не пропускайте завтрак\n4. Уменьшите сахар\n5. Считайте калории\n\nСоблюдаете эти правила?",
-            "🏃‍♂️ *Утренняя зарядка - 5 минут здоровья*\n\n• Наклоны головы - 10 раз\n• Вращения плечами - 10 раз\n• Наклоны корпуса - 10 раз\n• Приседания - 15 раз\n• Прыжки - 20 раз\n\nДелаете зарядку по утрам?",
-            "😴 *Как улучшить качество сна*\n\n• Ложитесь до 23:00\n• Не ешьте за 2 часа до сна\n• Проветрите комнату\n• Уберите гаджеты\n• Медитируйте перед сном\n\nСколько часов спите вы?",
-            "🧘 *Польза медитации*\n\n10 минут медитации в день:\n• Снижают стресс\n• Улучшают концентрацию\n• Повышают иммунитет\n• Нормализуют давление\n\nПрактикуете медитацию?",
-            "💪 *Спорт для всех*\n\nДаже 30 минут ходьбы в день снижают риск болезней сердца на 30%! Какой спорт предпочитаете?"
-        ]
-    },
-    "motivation": {
-        "name": "💪 Мотивация",
-        "posts": [
-            "🌟 *Успех не приходит мгновенно*\n\nКаждый большой успех начинается с маленького шага. Не бойтесь начинать, не бойтесь ошибаться. Главное - не останавливаться!\n\nКакой ваш первый шаг к успеху?",
-            "🎯 *Правило 5 секунд*\n\nЕсли у вас есть идея, которую нужно реализовать - сделайте это в течение 5 секунд. Не дайте страху и сомнениям остановить вас!\n\nКакую идею вы откладываете?",
-            "📚 *Читайте каждый день*\n\nУспешные люди много читают. Книги - это знания, опыт, вдохновение. Начните с 10 страниц в день - это 3650 страниц в год!\n\nКакую книгу читаете сейчас?",
-            "🚀 *Ваше время ограничено*\n\nНе тратьте его на сожаления и страхи. Действуйте здесь и сейчас. Мечты не работают, пока не работаете вы!\n\nЧто вы сделали сегодня?",
-            "💫 *Каждый эксперт был новичком*\n\nНикто не рождается профессионалом. Ошибки - это опыт. Падения - это рост. Продолжайте идти вперед!\n\nВ чем вы хотите стать экспертом?"
-        ]
-    },
-    "lifehacks": {
-        "name": "🎯 Лайфхаки",
-        "posts": [
-            "✨ *Организация пространства*\n\n• Храните вещи вертикально\n• Используйте прозрачные контейнеры\n• Избавляйтесь от ненужного\n• Маркируйте все коробки\n\nКак вы организуете дом?",
-            "⏰ *Тайм-менеджмент*\n\n• Планируйте день с вечера\n• Делайте самое сложное первым\n• Используйте таймер Pomodoro\n• Делегируйте задачи\n\nКак вы управляете временем?",
-            "💰 *Экономия бюджета*\n\n• Ведите учет расходов\n• Используйте кэшбэк\n• Покупайте оптом\n• Откажитесь от ненужных подписок\n\nНа чем вы экономите?",
-            "📱 *Полезные приложения*\n\n• Todoist - планирование\n• Notion - заметки\n• Forest - концентрация\n• Headspace - медитация\n\nКакие приложения в фаворитах?",
-            "🍳 *Быстрые рецепты*\n\nЗавтрак за 5 минут: овсянка с бананом и медом. Просто, вкусно, полезно! Какой ваш любимый быстрый завтрак?"
-        ]
-    }
-}
 
 # ==================== ТАРИФЫ ====================
 TARIFFS = {
     "free": {
         "name": "🌟 Бесплатный",
         "max_channels": 2,
-        "features": ["✅ 2 канала", "✅ Ручной постинг", "✅ 2 темы для автопостинга"]
+        "min_interval": 5,
+        "features": ["✅ 2 канала", "✅ Интервал от 5 минут", "✅ 5 тем"]
+    },
+    "basic": {
+        "name": "📘 Базовый",
+        "max_channels": 5,
+        "min_interval": 2,
+        "features": ["✅ 5 каналов", "✅ Интервал от 2 минут", "✅ 10 тем"]
     },
     "pro": {
         "name": "💎 PRO",
-        "max_channels": 10,
-        "features": ["✅ 10 каналов", "✅ Автопостинг", "✅ Все темы", "✅ Репосты", "✅ Приоритет"]
+        "max_channels": 15,
+        "min_interval": 1,
+        "features": ["✅ 15 каналов", "✅ Интервал от 1 минуты", "✅ Все темы"]
+    }
+}
+
+# ==================== ТЕМЫ ДЛЯ ПОСТОВ ====================
+POSTS_TEMPLATES = {
+    "technology": {
+        "name": "💻 Технологии",
+        "posts": [
+            "🔬 *Новая эра технологий*\n\nИскусственный интеллект меняет наш мир каждый день. Что ждет нас через 5 лет?\n\n#технологии #ai #будущее",
+            "📱 *Топ гаджетов этого месяца*\n\nСобрали для вас лучшие новинки рынка. Какой gadget хотите себе?\n\n#гаджеты #обзор #техника",
+            "💡 *IT-лайфхак*\n\nКак ускорить работу компьютера за 5 минут? Делимся простыми советами!\n\n#лайфхак #it #советы",
+            "🚀 *Инновации в космосе*\n\nЧастные компании осваивают космос быстрее государств. Подробности в посте\n\n#космос #spacex #инновации",
+            "⚡ *Будущее уже здесь*\n\n5 технологий, которые изменят нашу жизнь в ближайшие годы\n\n#технологии #будущее #тренды"
+        ]
+    },
+    "business": {
+        "name": "📊 Бизнес",
+        "posts": [
+            "💼 *Как начать свой бизнес с нуля*\n\nПошаговый план для начинающих предпринимателей\n\n#бизнес #стартап #советы",
+            "📈 *Тренды 2024 в бизнесе*\n\nКакие ниши будут самыми прибыльными в этом году?\n\n#бизнес #тренды #прибыль",
+            "💰 *Финансовая грамотность*\n\nКак управлять деньгами и приумножить капитал\n\n#финансы #деньги #инвестиции",
+            "🎯 *Маркетинг без бюджета*\n\nКак продвигать бизнес бесплатно и эффективно\n\n#маркетинг #продвижение #бизнес",
+            "🤝 *Как найти первых клиентов*\n\nПрактические советы для старта\n\n#клиенты #продажи #бизнес"
+        ]
+    },
+    "health": {
+        "name": "⚕️ Здоровье",
+        "posts": [
+            "🏃‍♂️ *Утренняя зарядка: 5 минут для здоровья*\n\nПростые упражнения для бодрости на весь день\n\n#здоровье #спорт #утро",
+            "🥗 *Правильное питание: с чего начать?\n\nОсновы здорового рациона для каждого\n\n#питание #зож #здоровье",
+            "😴 *Как наладить сон за 3 дня*\n\nСоветы сомнологов для крепкого сна\n\n#сон #здоровье #советы",
+            "🧘‍♀️ *Медитация для начинающих*\n\nКак справиться со стрессом за 10 минут\n\n#медитация #стресс #релакс",
+            "💪 *Домашние тренировки*\n\nЭффективные упражнения без тренажеров\n\n#фитнес #тренировка #спорт"
+        ]
+    },
+    "education": {
+        "name": "📚 Образование",
+        "posts": [
+            "🎓 *Как учиться эффективнее*\n\nМетодики быстрого запоминания информации\n\n#обучение #память #советы",
+            "📖 *Топ книг для саморазвития*\n\nЧто прочитать, чтобы стать лучше\n\n#книги #саморазвитие #чтение",
+            "🌍 *Изучение языков: лайфхаки*\n\nКак выучить иностранный язык за 3 месяца\n\n#языки #обучение #советы",
+            "💡 *Развитие памяти*\n\nУпражнения для улучшения работы мозга\n\n#память #мозг #развитие",
+            "🎯 *Постановка целей и их достижение*\n\nSMART-система для успеха\n\n#цели #успех #мотивация"
+        ]
+    },
+    "entertainment": {
+        "name": "🎬 Развлечения",
+        "posts": [
+            "🎬 *Топ фильмов этого года*\n\nЧто посмотреть вечером: наша подборка\n\n#кино #фильмы #топ",
+            "🎮 *Новинки видеоигр*\n\nВо что поиграть на выходных\n\n#игры #гейминг #новинки",
+            "😂 *Смешные истории из жизни*\n\nПоднимите себе настроение\n\n#юмор #жизнь #смех",
+            "🎵 *Музыкальный чарт недели*\n\nСамые популярные треки прямо сейчас\n\n#музыка #хиты #плейлист",
+            "📺 *Что посмотреть на Netflix*\n\nЛучшие сериалы для вечернего просмотра\n\n#netflix #сериалы #тв"
+        ]
+    },
+    "lifestyle": {
+        "name": "🌟 Лайфстайл",
+        "posts": [
+            "🏠 *Как сделать дом уютным*\n\nИдеи для интерьера своими руками\n\n#дом #уют #интерьер",
+            "🎨 *Хобби, которые меняют жизнь*\n\nНайдите дело по душе\n\n#хобби #творчество #жизнь",
+            "✈️ *Путешествия: куда поехать*\n\nНаправления для отдыха в этом сезоне\n\n#путешествия #отдых #туры",
+            "📸 *Фотография для начинающих*\n\nКак делать красивые фото на телефон\n\n#фото #советы #искусство",
+            "💭 *Мотивация на каждый день*\n\nЦитаты для вдохновения\n\n#мотивация #вдохновение #цитаты"
+        ]
+    },
+    "news": {
+        "name": "📰 Новости",
+        "posts": [
+            "🌐 *Главные события дня*\n\nСамые важные новости, которые нужно знать\n\n#новости #события #день",
+            "📊 *Экономический дайджест*\n\nЧто происходит на финансовых рынках\n\n#экономика #финансы #рынок",
+            "🚀 *Научные открытия*\n\nПрорывы, о которых говорят ученые\n\n#наука #открытия #технологии",
+            "🎉 *Праздники и события*\n\nЧто отмечают в этом месяце\n\n#праздники #события #календарь",
+            "💡 *Полезные новости*\n\nИзменения в законах и правилах\n\n#законы #права #новости"
+        ]
     }
 }
 
 # ==================== КЛАВИАТУРЫ ====================
-async def main_keyboard(user_id: int):
+async def get_main_keyboard(user_id: int):
     keyboard = [
         [InlineKeyboardButton("📝 Написать пост", callback_data="write_post")],
         [InlineKeyboardButton("📢 Мои каналы", callback_data="my_channels")],
         [InlineKeyboardButton("⚙️ Автопостинг", callback_data="auto_posting_menu")],
-        [InlineKeyboardButton("🔄 Репосты", callback_data="repost_menu")],
         [InlineKeyboardButton("💎 Тарифы", callback_data="tariffs")],
         [InlineKeyboardButton("👤 Профиль", callback_data="profile")],
         [InlineKeyboardButton("📊 Статистика", callback_data="stats")],
@@ -177,127 +190,97 @@ async def main_keyboard(user_id: int):
     ]
     return InlineKeyboardMarkup(keyboard)
 
-async def channels_keyboard(user_id: int):
-    conn = sqlite3.connect('posting_bot.db')
-    c = conn.cursor()
-    c.execute("SELECT channel_id, channel_title FROM channels WHERE user_id = ? AND status = 'active'", (user_id,))
-    channels = c.fetchall()
-    conn.close()
-    
-    keyboard = []
-    for channel_id, title in channels:
-        keyboard.append([InlineKeyboardButton(f"📢 {title}", callback_data=f"channel_{channel_id}")])
-    
-    if not channels:
-        keyboard.append([InlineKeyboardButton("➕ Добавить канал", callback_data="add_channel")])
-    
-    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_main")])
-    return InlineKeyboardMarkup(keyboard)
-
-async def auto_posting_keyboard(user_id: int):
-    conn = sqlite3.connect('posting_bot.db')
-    c = conn.cursor()
-    c.execute("SELECT channel_id, channel_title FROM channels WHERE user_id = ? AND status = 'active'", (user_id,))
-    channels = c.fetchall()
-    
-    keyboard = []
-    for channel_id, title in channels:
-        c.execute("SELECT is_active, topic FROM auto_posting WHERE channel_id = ?", (channel_id,))
-        setting = c.fetchone()
-        status = "✅" if setting and setting[0] else "❌"
-        topic_name = ""
-        if setting and setting[1] and setting[1] in TOPICS:
-            topic_name = f" - {TOPICS[setting[1]]['name']}"
-        keyboard.append([InlineKeyboardButton(f"{status} {title}{topic_name}", callback_data=f"auto_{channel_id}")])
-    
-    conn.close()
-    
-    if not channels:
-        keyboard = [[InlineKeyboardButton("❌ Нет каналов", callback_data="noop")]]
-    
-    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_main")])
-    return InlineKeyboardMarkup(keyboard)
-
-async def topic_keyboard(channel_id: str):
-    keyboard = []
-    for topic_key, topic_info in TOPICS.items():
-        keyboard.append([InlineKeyboardButton(topic_info["name"], callback_data=f"topic_{channel_id}_{topic_key}")])
-    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="auto_posting_menu")])
-    return InlineKeyboardMarkup(keyboard)
-
-async def interval_keyboard(channel_id: str):
+async def get_intervals_keyboard(channel_id: str):
+    """Клавиатура выбора интервала"""
     keyboard = [
-        [InlineKeyboardButton("⏱ 30 минут", callback_data=f"interval_{channel_id}_30")],
-        [InlineKeyboardButton("⏱ 1 час", callback_data=f"interval_{channel_id}_60")],
-        [InlineKeyboardButton("⏱ 2 часа", callback_data=f"interval_{channel_id}_120")],
-        [InlineKeyboardButton("⏱ 4 часа", callback_data=f"interval_{channel_id}_240")],
-        [InlineKeyboardButton("⏱ 6 часов", callback_data=f"interval_{channel_id}_360")],
-        [InlineKeyboardButton("⏱ 12 часов", callback_data=f"interval_{channel_id}_720")],
-        [InlineKeyboardButton("🔙 Назад", callback_data=f"auto_{channel_id}")]
+        [InlineKeyboardButton("1 минута 🔥", callback_data=f"interval_{channel_id}_1")],
+        [InlineKeyboardButton("5 минут", callback_data=f"interval_{channel_id}_5")],
+        [InlineKeyboardButton("10 минут", callback_data=f"interval_{channel_id}_10")],
+        [InlineKeyboardButton("30 минут", callback_data=f"interval_{channel_id}_30")],
+        [InlineKeyboardButton("1 час", callback_data=f"interval_{channel_id}_60")],
+        [InlineKeyboardButton("2 часа", callback_data=f"interval_{channel_id}_120")],
+        [InlineKeyboardButton("4 часа", callback_data=f"interval_{channel_id}_240")],
+        [InlineKeyboardButton("🔙 Назад", callback_data=f"back_auto_{channel_id}")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
-# ==================== ФУНКЦИИ АВТОПОСТИНГА ====================
-async def auto_post_job(context: ContextTypes.DEFAULT_TYPE):
-    """Фоновая задача для автопостинга"""
-    job_data = context.job.data
-    channel_id = job_data['channel_id']
-    user_id = job_data['user_id']
-    topic = job_data['topic']
+async def get_auto_keyboard(channel_id: str, is_active: int, interval: int, topic: str):
+    """Клавиатура управления автопостингом"""
+    status = "✅ ВКЛЮЧЕН" if is_active else "❌ ВЫКЛЮЧЕН"
+    topic_name = POSTS_TEMPLATES.get(topic, {}).get("name", "Не выбрана") if topic else "Не выбрана"
     
-    try:
-        # Получаем посты по теме
-        posts = TOPICS.get(topic, {}).get('posts', [])
-        if not posts:
-            return
-        
-        # Выбираем случайный пост
-        post = random.choice(posts)
-        
-        # Отправляем пост
-        await context.bot.send_message(chat_id=channel_id, text=post, parse_mode='Markdown')
-        
-        # Обновляем время последнего поста
-        conn = sqlite3.connect('posting_bot.db')
-        c = conn.cursor()
-        c.execute("UPDATE auto_posting SET last_post_time = ? WHERE channel_id = ?", 
-                  (datetime.now(), channel_id))
-        conn.commit()
-        conn.close()
-        
-        logger.info(f"Автопостинг отправлен в канал {channel_id} на тему {topic}")
-        
-    except Exception as e:
-        logger.error(f"Ошибка автопостинга: {e}")
+    keyboard = [
+        [InlineKeyboardButton(f"🔄 Статус: {status}", callback_data=f"toggle_auto_{channel_id}")],
+        [InlineKeyboardButton(f"📝 Тема: {topic_name}", callback_data=f"change_topic_{channel_id}")],
+        [InlineKeyboardButton(f"⏱ Интервал: {interval} мин", callback_data=f"change_interval_{channel_id}")],
+        [InlineKeyboardButton("🔙 Назад", callback_data="auto_posting_menu")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
 
-def schedule_auto_posting(application: Application, user_id: int, channel_id: str, interval_minutes: int, topic: str):
-    """Запланировать автопостинг"""
-    job_name = f"auto_post_{user_id}_{channel_id}"
-    
-    # Удаляем старую задачу если есть
-    current_jobs = application.job_queue.jobs()
-    for job in current_jobs:
-        if job.name == job_name:
-            job.schedule_removal()
-    
-    # Создаем новую задачу
-    application.job_queue.run_repeating(
-        auto_post_job,
-        interval=interval_minutes * 60,
-        first=10,  # Первый пост через 10 секунд
-        data={'channel_id': channel_id, 'user_id': user_id, 'topic': topic},
-        name=job_name
-    )
+async def get_topics_keyboard(channel_id: str):
+    """Клавиатура выбора темы"""
+    keyboard = []
+    for topic_key, topic_data in POSTS_TEMPLATES.items():
+        keyboard.append([
+            InlineKeyboardButton(topic_data["name"], callback_data=f"set_topic_{channel_id}_{topic_key}")
+        ])
+    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data=f"back_auto_{channel_id}")])
+    return InlineKeyboardMarkup(keyboard)
 
-def stop_auto_posting(application: Application, user_id: int, channel_id: str):
-    """Остановить автопостинг"""
-    job_name = f"auto_post_{user_id}_{channel_id}"
-    current_jobs = application.job_queue.jobs()
-    for job in current_jobs:
-        if job.name == job_name:
-            job.schedule_removal()
-            return True
-    return False
+# ==================== АВТОПОСТИНГ ====================
+async def auto_posting_loop(application: Application):
+    """Фоновый процесс автопостинга"""
+    while True:
+        try:
+            conn = sqlite3.connect('posting_bot.db')
+            c = conn.cursor()
+            
+            # Получаем активные автопостинги
+            c.execute("""SELECT user_id, channel_id, topic, interval_minutes, last_post_time 
+                        FROM auto_posting 
+                        WHERE is_active = 1""")
+            auto_posts = c.fetchall()
+            conn.close()
+            
+            for user_id, channel_id, topic, interval_min, last_post_time_str in auto_posts:
+                try:
+                    # Проверяем время следующего поста
+                    last_post = datetime.fromisoformat(last_post_time_str) if last_post_time_str else datetime.now() - timedelta(days=1)
+                    next_post_time = last_post + timedelta(minutes=interval_min)
+                    
+                    if datetime.now() >= next_post_time:
+                        # Выбираем случайный пост из темы
+                        posts_list = POSTS_TEMPLATES.get(topic, {}).get("posts", [])
+                        if posts_list:
+                            post_content = random.choice(posts_list)
+                            
+                            # Отправляем пост
+                            await application.bot.send_message(chat_id=channel_id, text=post_content, parse_mode='Markdown')
+                            
+                            # Сохраняем пост в историю
+                            conn2 = sqlite3.connect('posting_bot.db')
+                            c2 = conn2.cursor()
+                            c2.execute("""INSERT INTO posts (user_id, channel_id, content, post_type, posted_time) 
+                                         VALUES (?, ?, ?, ?, ?)""",
+                                      (user_id, channel_id, post_content, "auto", datetime.now()))
+                            c2.execute("""UPDATE auto_posting 
+                                         SET last_post_time = ?, next_post_time = ? 
+                                         WHERE channel_id = ? AND user_id = ?""",
+                                      (datetime.now().isoformat(), 
+                                       (datetime.now() + timedelta(minutes=interval_min)).isoformat(),
+                                       channel_id, user_id))
+                            conn2.commit()
+                            conn2.close()
+                            
+                            logger.info(f"Автопост отправлен в канал {channel_id}")
+                except Exception as e:
+                    logger.error(f"Ошибка автопостинга для {channel_id}: {e}")
+            
+            await asyncio.sleep(30)  # Проверяем каждые 30 секунд
+            
+        except Exception as e:
+            logger.error(f"Ошибка в цикле автопостинга: {e}")
+            await asyncio.sleep(60)
 
 # ==================== ОБРАБОТЧИКИ ====================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -312,50 +295,30 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.commit()
     conn.close()
     
-    text = (
+    welcome_text = (
         f"✨ *Привет, {user.first_name}!*\n\n"
-        f"🤖 *Бот для автоматического постинга*\n\n"
-        f"📋 *Что я умею:*\n"
-        f"• 📝 Писать посты вручную\n"
-        f"• ⚙️ Автоматический постинг по темам\n"
-        f"• 🔄 Репосты из других каналов\n"
-        f"• 📊 Статистика\n\n"
+        f"🤖 *Я бот для автопостинга в Telegram каналы*\n\n"
+        f"📋 *Мои возможности:*\n"
+        f"• 📝 Ручная публикация постов\n"
+        f"• 🤖 Автоматический постинг по темам\n"
+        f"• ⏱ Интервал от 1 минуты\n"
+        f"• 📊 Сбор статистики\n\n"
         f"🚀 *Как начать:*\n"
         f"1️⃣ Добавьте меня в канал как администратора\n"
-        f"2️⃣ Введите /add_channel или нажмите 'Мои каналы'\n"
-        f"3️⃣ Настройте автопостинг\n\n"
-        f"💡 *Все функции бесплатны!*"
+        f"2️⃣ Добавьте канал в бота\n"
+        f"3️⃣ Настройте автопостинг или пишите вручную!\n\n"
+        f"💡 *Все тарифы бесплатны!*"
     )
     
-    keyboard = await main_keyboard(user.id)
-    await update.message.reply_text(text, parse_mode='Markdown', reply_markup=keyboard)
+    keyboard = await get_main_keyboard(user.id)
+    await update.message.reply_text(welcome_text, parse_mode='Markdown', reply_markup=keyboard)
 
-async def add_channel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "📢 *Добавление канала*\n\n"
-        "1. Добавьте бота в канал как администратора\n"
-        "2. Отправьте ссылку на канал:\n"
-        "• `@username`\n"
-        "• `https://t.me/username`\n\n"
-        "Отправьте ссылку:",
-        parse_mode='Markdown'
-    )
-    context.user_data['adding_channel'] = True
-
-async def process_add_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    channel_input = update.message.text.strip()
+async def add_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
     
-    # Извлекаем ID
-    if "t.me/" in channel_input:
-        username = channel_input.split("t.me/")[-1]
-        if "/" in username:
-            username = username.split("/")[0]
-        channel_id = f"@{username}"
-    else:
-        channel_id = channel_input if channel_input.startswith("@") else f"@{channel_input}"
+    user = query.from_user
     
-    # Проверяем лимит
     conn = sqlite3.connect('posting_bot.db')
     c = conn.cursor()
     c.execute("SELECT tariff FROM subscriptions WHERE user_id = ?", (user.id,))
@@ -364,338 +327,432 @@ async def process_add_channel(update: Update, context: ContextTypes.DEFAULT_TYPE
     max_channels = TARIFFS[tariff]["max_channels"]
     
     c.execute("SELECT COUNT(*) FROM channels WHERE user_id = ? AND status='active'", (user.id,))
-    count = c.fetchone()[0]
+    current_count = c.fetchone()[0]
+    conn.close()
     
-    if count >= max_channels:
-        await update.message.reply_text(f"❌ Лимит каналов: {max_channels}. Перейдите на PRO тариф для увеличения.")
-        conn.close()
+    if current_count >= max_channels:
+        await query.edit_message_text(
+            f"❌ *Лимит каналов: {max_channels}*\n\n"
+            f"Ваш тариф '{TARIFFS[tariff]['name']}' позволяет добавить только {max_channels} канала(ов).\n"
+            f"Используйте /tariffs для смены тарифа.",
+            parse_mode='Markdown'
+        )
         return
+    
+    await query.edit_message_text(
+        "📢 *Добавление канала*\n\n"
+        "Чтобы добавить канал:\n\n"
+        "1️⃣ Добавьте бота в канал как администратора\n"
+        "2️⃣ Перешлите любое сообщение из канала сюда\n"
+        "или отправьте ссылку вида: @channel_username\n\n"
+        "📝 *Отправьте ID или ссылку на канал:*",
+        parse_mode='Markdown'
+    )
+    context.user_data['adding_channel'] = True
+
+async def process_add_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    text = update.message.text.strip()
+    
+    # Определяем ID канала
+    if text.startswith('@'):
+        channel_id = text
+    elif 't.me/' in text:
+        channel_id = '@' + text.split('t.me/')[-1]
+    else:
+        channel_id = text
     
     try:
         chat = await context.bot.get_chat(chat_id=channel_id)
         
-        c.execute("INSERT INTO channels (user_id, channel_id, channel_title, channel_username, added_date) VALUES (?, ?, ?, ?, ?)",
-                  (user.id, str(chat.id), chat.title, channel_input, datetime.now()))
+        if chat.type not in ['channel', 'supergroup']:
+            await update.message.reply_text("❌ Это не канал! Отправьте ссылку на канал.")
+            return
+        
+        conn = sqlite3.connect('posting_bot.db')
+        c = conn.cursor()
+        
+        c.execute("SELECT * FROM channels WHERE user_id = ? AND channel_id = ?", (user.id, str(chat.id)))
+        if c.fetchone():
+            await update.message.reply_text("❌ Этот канал уже добавлен!")
+            conn.close()
+            return
+        
+        c.execute("INSERT INTO channels (user_id, channel_id, channel_title, added_date) VALUES (?, ?, ?, ?)",
+                  (user.id, str(chat.id), chat.title, datetime.now()))
         conn.commit()
+        conn.close()
         
         await update.message.reply_text(
-            f"✅ *Канал добавлен!*\n\n📢 {chat.title}\n🆔 {chat.id}\n\nТеперь настройте автопостинг в меню!",
+            f"✅ *Канал добавлен!*\n\n"
+            f"📢 Название: {chat.title}\n"
+            f"🆔 ID: {chat.id}\n\n"
+            f"Теперь вы можете:\n"
+            f"• Писать посты вручную\n"
+            f"• Настроить автопостинг",
             parse_mode='Markdown'
         )
-    except Exception as e:
-        await update.message.reply_text(f"❌ Ошибка: {str(e)}\n\nУбедитесь что бот добавлен в канал как администратор!")
-    finally:
-        conn.close()
+        
         context.user_data['adding_channel'] = False
+        
+        keyboard = await get_main_keyboard(user.id)
+        await update.message.reply_text("🎯 Главное меню:", reply_markup=keyboard)
+        
+    except Exception as e:
+        await update.message.reply_text(
+            f"❌ *Ошибка:* {str(e)}\n\n"
+            f"Убедитесь что:\n"
+            f"• Бот добавлен в канал\n"
+            f"• Бот является администратором\n"
+            f"• Ссылка правильная",
+            parse_mode='Markdown'
+        )
 
-async def write_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def write_post_manual(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
+    user = query.from_user
+    
     conn = sqlite3.connect('posting_bot.db')
     c = conn.cursor()
-    c.execute("SELECT channel_id, channel_title FROM channels WHERE user_id = ? AND status='active'", (query.from_user.id,))
+    c.execute("SELECT channel_id, channel_title FROM channels WHERE user_id = ? AND status='active'", (user.id,))
     channels = c.fetchall()
     conn.close()
     
     if not channels:
-        await query.edit_message_text("❌ Нет каналов. Сначала добавьте канал!", parse_mode='Markdown')
+        await query.edit_message_text(
+            "❌ *Нет добавленных каналов!*\n\n"
+            "Сначала добавьте канал через меню 'Мои каналы'",
+            parse_mode='Markdown'
+        )
         return
     
     keyboard = []
     for channel_id, title in channels:
-        keyboard.append([InlineKeyboardButton(f"📢 {title}", callback_data=f"post_to_{channel_id}")])
+        keyboard.append([InlineKeyboardButton(f"📢 {title}", callback_data=f"manual_post_{channel_id}")])
     keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_main")])
     
-    await query.edit_message_text("📝 Выберите канал:", reply_markup=InlineKeyboardMarkup(keyboard))
+    await query.edit_message_text(
+        "📝 *Выберите канал для публикации:*",
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
-async def post_to_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def send_manual_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    channel_id = query.data.replace("post_to_", "")
-    context.user_data['post_channel'] = channel_id
+    channel_id = query.data.replace("manual_post_", "")
+    context.user_data['manual_channel'] = channel_id
     
     await query.edit_message_text(
-        "📝 *Напишите пост*\n\n"
-        "Отправьте текст, фото или видео\n"
-        "Используйте /cancel для отмены",
+        "📝 *Напишите пост для публикации*\n\n"
+        "Вы можете отправить:\n"
+        "• Текст\n"
+        "• Фото с подписью\n"
+        "• Видео с подписью\n\n"
+        "Отправьте /cancel для отмены",
         parse_mode='Markdown'
     )
 
-async def handle_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    channel_id = context.user_data.get('post_channel')
-    
+async def publish_manual(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    channel_id = context.user_data.get('manual_channel')
     if not channel_id:
+        await update.message.reply_text("❌ Ошибка, попробуйте снова /start")
         return
     
-    text = update.message.text or update.message.caption or ""
+    text = update.message.caption or update.message.text
     
     try:
         if update.message.photo:
-            photo = update.message.photo[-1].file_id
-            await context.bot.send_photo(chat_id=channel_id, photo=photo, caption=text)
+            await context.bot.send_photo(chat_id=channel_id, photo=update.message.photo[-1].file_id, caption=text)
         elif update.message.video:
-            video = update.message.video.file_id
-            await context.bot.send_video(chat_id=channel_id, video=video, caption=text)
+            await context.bot.send_video(chat_id=channel_id, video=update.message.video.file_id, caption=text)
         else:
-            await context.bot.send_message(chat_id=channel_id, text=text)
+            await context.bot.send_message(chat_id=channel_id, text=text, parse_mode='Markdown')
         
         # Сохраняем в БД
         conn = sqlite3.connect('posting_bot.db')
         c = conn.cursor()
         c.execute("INSERT INTO posts (user_id, channel_id, content, post_type, posted_time) VALUES (?, ?, ?, ?, ?)",
-                  (user.id, channel_id, text, "manual", datetime.now()))
+                  (update.effective_user.id, channel_id, text, "manual", datetime.now()))
         conn.commit()
         conn.close()
         
-        await update.message.reply_text("✅ Пост опубликован!")
+        await update.message.reply_text("✅ *Пост успешно опубликован!*", parse_mode='Markdown')
+        
+        context.user_data['manual_channel'] = None
+        keyboard = await get_main_keyboard(update.effective_user.id)
+        await update.message.reply_text("🎯 Главное меню:", reply_markup=keyboard)
+        
     except Exception as e:
-        await update.message.reply_text(f"❌ Ошибка: {str(e)}")
-    
-    context.user_data['post_channel'] = None
-    
-    # Показываем меню
-    keyboard = await main_keyboard(user.id)
-    await update.message.reply_text("🎯 Главное меню:", reply_markup=keyboard)
+        await update.message.reply_text(f"❌ *Ошибка:* {str(e)}", parse_mode='Markdown')
 
 async def auto_posting_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    keyboard = await auto_posting_keyboard(query.from_user.id)
-    await query.edit_message_text("⚙️ *Автопостинг*\n\nВыберите канал:", parse_mode='Markdown', reply_markup=keyboard)
+    user = query.from_user
+    
+    conn = sqlite3.connect('posting_bot.db')
+    c = conn.cursor()
+    c.execute("SELECT channel_id, channel_title FROM channels WHERE user_id = ? AND status='active'", (user.id,))
+    channels = c.fetchall()
+    conn.close()
+    
+    if not channels:
+        await query.edit_message_text(
+            "❌ *Нет добавленных каналов!*\n\n"
+            "Сначала добавьте канал",
+            parse_mode='Markdown'
+        )
+        return
+    
+    keyboard = []
+    for channel_id, title in channels:
+        keyboard.append([InlineKeyboardButton(f"📢 {title}", callback_data=f"auto_setup_{channel_id}")])
+    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_main")])
+    
+    await query.edit_message_text(
+        "⚙️ *Выберите канал для настройки автопостинга:*",
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
-async def auto_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def auto_setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    channel_id = query.data.replace("auto_", "")
+    channel_id = query.data.replace("auto_setup_", "")
     context.user_data['auto_channel'] = channel_id
     
-    # Получаем настройки
     conn = sqlite3.connect('posting_bot.db')
     c = conn.cursor()
-    c.execute("SELECT is_active, topic, interval_minutes FROM auto_posting WHERE channel_id = ?", (channel_id,))
-    setting = c.fetchone()
+    c.execute("SELECT is_active, interval_minutes, topic FROM auto_posting WHERE channel_id = ? AND user_id = ?", 
+              (channel_id, query.from_user.id))
+    settings = c.fetchone()
     conn.close()
     
-    is_active = setting[0] if setting else 0
-    topic = setting[1] if setting and setting[1] else "Не выбрана"
-    interval = setting[2] if setting else 60
+    is_active = settings[0] if settings else 0
+    interval = settings[1] if settings else 60
+    topic = settings[2] if settings else "technology"
     
-    topic_name = TOPICS.get(topic, {}).get("name", "Не выбрана")
-    
-    text = (
+    keyboard = await get_auto_keyboard(channel_id, is_active, interval, topic)
+    await query.edit_message_text(
         f"⚙️ *Настройки автопостинга*\n\n"
-        f"📢 Канал: {channel_id}\n"
-        f"🔄 Статус: {'✅ Включен' if is_active else '❌ Выключен'}\n"
-        f"📝 Тема: {topic_name}\n"
-        f"⏱ Интервал: {interval} мин\n\n"
-        f"Что хотите изменить?"
+        f"📢 Канал: {channel_id}\n\n"
+        f"Выберите параметры:",
+        parse_mode='Markdown',
+        reply_markup=keyboard
     )
-    
-    keyboard = [
-        [InlineKeyboardButton("🔄 Вкл/Выкл", callback_data=f"toggle_{channel_id}")],
-        [InlineKeyboardButton("📝 Выбрать тему", callback_data=f"topic_menu_{channel_id}")],
-        [InlineKeyboardButton("⏱ Изменить интервал", callback_data=f"interval_menu_{channel_id}")],
-        [InlineKeyboardButton("🔙 Назад", callback_data="auto_posting_menu")]
-    ]
-    
-    await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def toggle_auto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    channel_id = query.data.replace("toggle_", "")
+    channel_id = query.data.replace("toggle_auto_", "")
     user_id = query.from_user.id
     
     conn = sqlite3.connect('posting_bot.db')
     c = conn.cursor()
     
-    # Проверяем есть ли настройки
-    c.execute("SELECT * FROM auto_posting WHERE channel_id = ?", (channel_id,))
-    exists = c.fetchone()
+    c.execute("SELECT is_active, topic FROM auto_posting WHERE channel_id = ? AND user_id = ?", 
+              (channel_id, user_id))
+    current = c.fetchone()
     
-    if exists:
-        c.execute("SELECT is_active FROM auto_posting WHERE channel_id = ?", (channel_id,))
-        current = c.fetchone()[0]
-        new_status = 0 if current else 1
-        
-        if new_status == 1:
-            # Проверяем выбрана ли тема
-            c.execute("SELECT topic FROM auto_posting WHERE channel_id = ?", (channel_id,))
-            topic = c.fetchone()[0]
-            if not topic:
-                await query.edit_message_text(
-                    "❌ *Сначала выберите тему!*\n\n"
-                    "Нажмите 'Выбрать тему' и выберите тему для постов",
-                    parse_mode='Markdown'
-                )
-                conn.close()
-                return
-            
-            c.execute("UPDATE auto_posting SET is_active = ?, last_post_time = ? WHERE channel_id = ?",
-                      (new_status, datetime.now(), channel_id))
-            
-            # Запускаем автопостинг
-            c.execute("SELECT topic, interval_minutes FROM auto_posting WHERE channel_id = ?", (channel_id,))
-            topic, interval = c.fetchone()
-            schedule_auto_posting(context.application, user_id, channel_id, interval, topic)
-            
-        else:
-            c.execute("UPDATE auto_posting SET is_active = ? WHERE channel_id = ?", (new_status, channel_id))
-            stop_auto_posting(context.application, user_id, channel_id)
+    if not current:
+        # Создаем новую запись
+        c.execute("""INSERT INTO auto_posting (user_id, channel_id, is_active, topic, interval_minutes, last_post_time) 
+                     VALUES (?, ?, 1, 'technology', 60, ?)""",
+                  (user_id, channel_id, datetime.now().isoformat()))
+        is_active = 1
     else:
-        # Создаем настройки
-        c.execute("INSERT INTO auto_posting (user_id, channel_id, is_active) VALUES (?, ?, 1)", (user_id, channel_id))
-        await query.edit_message_text(
-            "❌ *Сначала выберите тему!*\n\n"
-            "Нажмите 'Выбрать тему' и выберите тему для постов",
-            parse_mode='Markdown'
-        )
-        conn.commit()
-        conn.close()
-        return
+        is_active = 0 if current[0] else 1
+        c.execute("UPDATE auto_posting SET is_active = ?, last_post_time = ? WHERE channel_id = ? AND user_id = ?",
+                  (is_active, datetime.now().isoformat() if is_active else None, channel_id, user_id))
     
     conn.commit()
     conn.close()
     
-    await query.edit_message_text(f"✅ Автопостинг {'включен' if new_status else 'выключен'}!")
+    status = "включен" if is_active else "выключен"
+    await query.edit_message_text(f"✅ *Автопостинг {status}!*", parse_mode='Markdown')
     await asyncio.sleep(1)
-    await auto_settings(update, context)
+    await auto_setup(update, context)
 
-async def topic_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def change_interval(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    channel_id = query.data.replace("topic_menu_", "")
-    keyboard = await topic_keyboard(channel_id)
-    await query.edit_message_text("📝 *Выберите тему для автопостинга:*", parse_mode='Markdown', reply_markup=keyboard)
-
-async def set_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
+    channel_id = query.data.replace("change_interval_", "")
     
-    parts = query.data.split("_")
-    channel_id = parts[1]
-    topic_key = parts[2]
-    user_id = query.from_user.id
-    
-    conn = sqlite3.connect('posting_bot.db')
-    c = conn.cursor()
-    
-    # Обновляем тему
-    c.execute("SELECT * FROM auto_posting WHERE channel_id = ?", (channel_id,))
-    exists = c.fetchone()
-    
-    if exists:
-        c.execute("UPDATE auto_posting SET topic = ? WHERE channel_id = ?", (topic_key, channel_id))
-        # Если автопостинг был активен, перезапускаем
-        c.execute("SELECT is_active, interval_minutes FROM auto_posting WHERE channel_id = ?", (channel_id,))
-        is_active, interval = c.fetchone()
-        if is_active:
-            schedule_auto_posting(context.application, user_id, channel_id, interval, topic_key)
-    else:
-        c.execute("INSERT INTO auto_posting (user_id, channel_id, topic, is_active) VALUES (?, ?, ?, 0)",
-                  (user_id, channel_id, topic_key))
-    
-    conn.commit()
-    conn.close()
-    
-    topic_name = TOPICS[topic_key]["name"]
-    await query.edit_message_text(f"✅ Тема установлена: {topic_name}!")
-    await asyncio.sleep(1)
-    await auto_settings(update, context)
-
-async def interval_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    channel_id = query.data.replace("interval_menu_", "")
-    keyboard = await interval_keyboard(channel_id)
-    await query.edit_message_text("⏱ *Выберите интервал постинга:*", parse_mode='Markdown', reply_markup=keyboard)
+    keyboard = await get_intervals_keyboard(channel_id)
+    await query.edit_message_text(
+        "⏱ *Выберите интервал между постами:*\n\n"
+        "Минимальный интервал зависит от вашего тарифа",
+        parse_mode='Markdown',
+        reply_markup=keyboard
+    )
 
 async def set_interval(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
     parts = query.data.split("_")
-    channel_id = parts[1]
-    interval = int(parts[2])
+    channel_id = parts[2]
+    interval = int(parts[3])
+    
+    user_id = query.from_user.id
+    
+    # Проверяем лимит по тарифу
+    conn = sqlite3.connect('posting_bot.db')
+    c = conn.cursor()
+    c.execute("SELECT tariff FROM subscriptions WHERE user_id = ?", (user_id,))
+    tariff = c.fetchone()[0]
+    min_interval = TARIFFS[tariff]["min_interval"]
+    
+    if interval < min_interval:
+        await query.edit_message_text(
+            f"❌ *Интервал {interval} мин недоступен для вашего тарифа*\n\n"
+            f"Ваш тариф '{TARIFFS[tariff]['name']}' позволяет интервал от {min_interval} минут\n\n"
+            f"Используйте /tariffs для смены тарифа",
+            parse_mode='Markdown'
+        )
+        conn.close()
+        return
+    
+    c.execute("INSERT OR REPLACE INTO auto_posting (user_id, channel_id, interval_minutes, last_post_time) VALUES (?, ?, ?, ?)",
+              (user_id, channel_id, interval, datetime.now().isoformat()))
+    conn.commit()
+    conn.close()
+    
+    await query.edit_message_text(f"✅ *Интервал установлен: {interval} минут*", parse_mode='Markdown')
+    await asyncio.sleep(1)
+    await auto_setup(update, context)
+
+async def change_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    channel_id = query.data.replace("change_topic_", "")
+    
+    keyboard = await get_topics_keyboard(channel_id)
+    await query.edit_message_text(
+        "📝 *Выберите тему для автопостинга:*\n\n"
+        "Посты будут генерироваться на выбранную тему",
+        parse_mode='Markdown',
+        reply_markup=keyboard
+    )
+
+async def set_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    parts = query.data.split("_")
+    channel_id = parts[3]
+    topic = parts[4]
     user_id = query.from_user.id
     
     conn = sqlite3.connect('posting_bot.db')
     c = conn.cursor()
-    
-    c.execute("SELECT * FROM auto_posting WHERE channel_id = ?", (channel_id,))
-    exists = c.fetchone()
-    
-    if exists:
-        c.execute("UPDATE auto_posting SET interval_minutes = ? WHERE channel_id = ?", (interval, channel_id))
-        # Перезапускаем если активен
-        c.execute("SELECT is_active, topic FROM auto_posting WHERE channel_id = ?", (channel_id,))
-        is_active, topic = c.fetchone()
-        if is_active and topic:
-            schedule_auto_posting(context.application, user_id, channel_id, interval, topic)
-    else:
-        c.execute("INSERT INTO auto_posting (user_id, channel_id, interval_minutes) VALUES (?, ?, ?)",
-                  (user_id, channel_id, interval))
-    
+    c.execute("INSERT OR REPLACE INTO auto_posting (user_id, channel_id, topic, last_post_time) VALUES (?, ?, ?, ?)",
+              (user_id, channel_id, topic, datetime.now().isoformat()))
     conn.commit()
     conn.close()
     
-    await query.edit_message_text(f"✅ Интервал установлен: {interval} минут!")
+    topic_name = POSTS_TEMPLATES[topic]["name"]
+    await query.edit_message_text(f"✅ *Тема выбрана: {topic_name}*", parse_mode='Markdown')
     await asyncio.sleep(1)
-    await auto_settings(update, context)
+    await auto_setup(update, context)
 
-async def my_channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def back_auto(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await auto_setup(update, context)
+
+async def show_channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    keyboard = await channels_keyboard(query.from_user.id)
-    await query.edit_message_text("📢 *Ваши каналы*", parse_mode='Markdown', reply_markup=keyboard)
-
-async def repost_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
+    user = query.from_user
     
-    keyboard = [
-        [InlineKeyboardButton("🔄 Настроить репосты", callback_data="setup_repost")],
-        [InlineKeyboardButton("🔙 Назад", callback_data="back_main")]
-    ]
-    await query.edit_message_text("🔄 *Репосты*\n\nФункция в разработке", parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+    conn = sqlite3.connect('posting_bot.db')
+    c = conn.cursor()
+    c.execute("SELECT channel_id, channel_title, added_date FROM channels WHERE user_id = ? AND status='active'", (user.id,))
+    channels = c.fetchall()
+    conn.close()
+    
+    if not channels:
+        await query.edit_message_text(
+            "❌ *У вас нет добавленных каналов*\n\n"
+            "Нажмите '➕ Добавить канал'",
+            parse_mode='Markdown'
+        )
+        return
+    
+    text = "📢 *Ваши каналы:*\n\n"
+    for channel_id, title, date in channels:
+        text += f"📌 {title}\n🆔 `{channel_id}`\n📅 Добавлен: {date[:10]}\n\n"
+    
+    keyboard = [[InlineKeyboardButton("➕ Добавить канал", callback_data="add_channel")],
+                [InlineKeyboardButton("🔙 Назад", callback_data="back_main")]]
+    
+    await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def show_tariffs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    user_id = query.from_user.id
+    user = query.from_user
     
     conn = sqlite3.connect('posting_bot.db')
     c = conn.cursor()
-    c.execute("SELECT tariff FROM subscriptions WHERE user_id = ?", (user_id,))
+    c.execute("SELECT tariff FROM subscriptions WHERE user_id = ?", (user.id,))
     current = c.fetchone()
     current_tariff = current[0] if current else "free"
     conn.close()
     
-    text = "💎 *Тарифы*\n\n"
+    text = "💎 *Доступные тарифы (все бесплатны!)*\n\n"
+    
     for key, tariff in TARIFFS.items():
-        marker = "✅ " if key == current_tariff else "📌 "
-        text += f"{marker}*{tariff['name']}*\n"
+        mark = "✅ *ТЕКУЩИЙ* " if key == current_tariff else "📌 "
+        text += f"{mark}{tariff['name']}\n"
         for feature in tariff['features']:
-            text += f"  {feature}\n"
+            text += f"   {feature}\n"
         text += "\n"
     
-    text += "🎁 *Все тарифы бесплатны!*\n"
-    text += "PRO тариф доступен по запросу @admin"
+    keyboard = []
+    for key in TARIFFS.keys():
+        if key != current_tariff:
+            keyboard.append([InlineKeyboardButton(f"Выбрать {TARIFFS[key]['name']}", callback_data=f"select_tariff_{key}")])
+    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_main")])
     
-    keyboard = [[InlineKeyboardButton("🔙 Назад", callback_data="back_main")]]
     await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
 
-async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def select_tariff(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    tariff_key = query.data.replace("select_tariff_", "")
+    user_id = query.from_user.id
+    
+    conn = sqlite3.connect('posting_bot.db')
+    c = conn.cursor()
+    c.execute("UPDATE subscriptions SET tariff = ?, max_channels = ? WHERE user_id = ?",
+              (tariff_key, TARIFFS[tariff_key]["max_channels"], user_id))
+    conn.commit()
+    conn.close()
+    
+    await query.edit_message_text(
+        f"✅ *Тариф изменен на {TARIFFS[tariff_key]['name']}!*\n\n"
+        f"Теперь вам доступно {TARIFFS[tariff_key]['max_channels']} каналов\n"
+        f"Минимальный интервал: {TARIFFS[tariff_key]['min_interval']} минут",
+        parse_mode='Markdown'
+    )
+    await asyncio.sleep(2)
+    await show_tariffs(update, context)
+
+async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
@@ -704,9 +761,8 @@ async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn = sqlite3.connect('posting_bot.db')
     c = conn.cursor()
     
-    c.execute("SELECT tariff FROM subscriptions WHERE user_id = ?", (user.id,))
-    tariff = c.fetchone()
-    tariff_name = TARIFFS.get(tariff[0] if tariff else "free", {}).get("name", "Бесплатный")
+    c.execute("SELECT tariff, start_date FROM subscriptions WHERE user_id = ?", (user.id,))
+    sub = c.fetchone()
     
     c.execute("SELECT COUNT(*) FROM channels WHERE user_id = ? AND status='active'", (user.id,))
     channels_count = c.fetchone()[0]
@@ -714,48 +770,94 @@ async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     c.execute("SELECT COUNT(*) FROM posts WHERE user_id = ?", (user.id,))
     posts_count = c.fetchone()[0]
     
+    c.execute("SELECT COUNT(*) FROM auto_posting WHERE user_id = ? AND is_active = 1", (user.id,))
+    active_auto = c.fetchone()[0]
+    
     conn.close()
     
+    tariff = sub[0] if sub else "free"
+    
     text = (
-        f"👤 *Профиль*\n\n"
+        f"👤 *Ваш профиль*\n\n"
         f"🆔 ID: {user.id}\n"
-        f"👤 Имя: {user.first_name}\n"
-        f"💎 Тариф: {tariff_name}\n"
-        f"📢 Каналов: {channels_count}\n"
-        f"📝 Постов: {posts_count}\n"
+        f"📝 Имя: {user.first_name}\n"
+        f"💎 Тариф: {TARIFFS[tariff]['name']}\n\n"
+        f"📊 *Статистика:*\n"
+        f"• Каналов: {channels_count}/{TARIFFS[tariff]['max_channels']}\n"
+        f"• Постов: {posts_count}\n"
+        f"• Активных автопостингов: {active_auto}\n\n"
+        f"🎁 Все тарифы бесплатны!"
     )
     
     keyboard = [[InlineKeyboardButton("🔙 Назад", callback_data="back_main")]]
     await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
 
-async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def show_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    user_id = query.from_user.id
+    user = query.from_user
     
     conn = sqlite3.connect('posting_bot.db')
     c = conn.cursor()
     
     today = datetime.now().date()
-    c.execute("SELECT COUNT(*) FROM posts WHERE user_id = ? AND DATE(posted_time) = ?", (user_id, today))
+    week_ago = datetime.now() - timedelta(days=7)
+    
+    c.execute("SELECT COUNT(*) FROM posts WHERE user_id = ? AND DATE(posted_time) = ?", (user.id, today))
     today_posts = c.fetchone()[0]
     
-    week_ago = datetime.now() - timedelta(days=7)
-    c.execute("SELECT COUNT(*) FROM posts WHERE user_id = ? AND posted_time >= ?", (user_id, week_ago))
+    c.execute("SELECT COUNT(*) FROM posts WHERE user_id = ? AND posted_time >= ?", (user.id, week_ago))
     week_posts = c.fetchone()[0]
     
-    c.execute("SELECT COUNT(*) FROM auto_posting WHERE user_id = ? AND is_active = 1", (user_id,))
-    active_auto = c.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM posts WHERE user_id = ? AND post_type = 'auto'", (user.id,))
+    auto_posts = c.fetchone()[0]
+    
+    c.execute("SELECT COUNT(*) FROM posts WHERE user_id = ? AND post_type = 'manual'", (user.id,))
+    manual_posts = c.fetchone()[0]
     
     conn.close()
     
     text = (
-        f"📊 *Статистика*\n\n"
-        f"📝 Постов сегодня: {today_posts}\n"
-        f"📊 Постов за неделю: {week_posts}\n"
-        f"⚙️ Активных автопостингов: {active_auto}\n\n"
-        f"💡 Продолжайте в том же духе!"
+        f"📊 *Ваша статистика*\n\n"
+        f"📝 *Посты:*\n"
+        f"• Сегодня: {today_posts}\n"
+        f"• За неделю: {week_posts}\n"
+        f"• Всего: {today_posts + week_posts}\n\n"
+        f"🤖 *По типам:*\n"
+        f"• Автопосты: {auto_posts}\n"
+        f"• Ручные: {manual_posts}\n\n"
+        f"💡 *Совет:* Включите автопостинг для автоматической публикации!"
+    )
+    
+    keyboard = [[InlineKeyboardButton("🔙 Назад", callback_data="back_main")]]
+    await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    text = (
+        "ℹ️ *Помощь*\n\n"
+        "📋 *Как пользоваться ботом:*\n\n"
+        "1️⃣ *Добавьте канал*\n"
+        "• Добавьте @bot в канал как администратора\n"
+        "• В меню 'Мои каналы' ➕ 'Добавить канал'\n"
+        "• Отправьте ссылку на канал\n\n"
+        "2️⃣ *Ручные посты*\n"
+        "• 'Написать пост' ➡️ выберите канал\n"
+        "• Отправьте текст, фото или видео\n\n"
+        "3️⃣ *Автопостинг*\n"
+        "• 'Автопостинг' ➡️ выберите канал\n"
+        "• Включите автопостинг\n"
+        "• Выберите тему и интервал\n"
+        "• Бот будет постить автоматически!\n\n"
+        "⏱ *Интервалы:*\n"
+        "• Бесплатный: от 5 минут\n"
+        "• Базовый: от 2 минут\n"
+        "• PRO: от 1 минуты\n\n"
+        "🎁 *Все тарифы БЕСПЛАТНЫ!*\n\n"
+        "❓ Вопросы: @support"
     )
     
     keyboard = [[InlineKeyboardButton("🔙 Назад", callback_data="back_main")]]
@@ -765,54 +867,57 @@ async def back_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    keyboard = await main_keyboard(query.from_user.id)
-    await query.edit_message_text("🎯 *Главное меню*", parse_mode='Markdown', reply_markup=keyboard)
-
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    text = (
-        "ℹ️ *Помощь*\n\n"
-        "📌 *Команды:*\n"
-        "/start - Главное меню\n"
-        "/add_channel - Добавить канал\n"
-        "/cancel - Отменить действие\n\n"
-        "📌 *Как настроить автопостинг:*\n"
-        "1. Добавьте бота в канал\n"
-        "2. Нажмите 'Автопостинг'\n"
-        "3. Выберите канал\n"
-        "4. Выберите тему\n"
-        "5. Включите автопостинг\n\n"
-        "📌 *Как публиковать вручную:*\n"
-        "1. Нажмите 'Написать пост'\n"
-        "2. Выберите канал\n"
-        "3. Отправьте сообщение\n\n"
-        "❓ Вопросы: @SupportBot"
-    )
-    
-    keyboard = [[InlineKeyboardButton("🔙 Назад", callback_data="back_main")]]
-    await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+    keyboard = await get_main_keyboard(query.from_user.id)
+    await query.edit_message_text("🎯 *Главное меню*\n\nВыберите действие:", 
+                                  parse_mode='Markdown', 
+                                  reply_markup=keyboard)
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
-    await update.message.reply_text("❌ Действие отменено")
-    
-    keyboard = await main_keyboard(update.effective_user.id)
+    await update.message.reply_text("❌ *Действие отменено*", parse_mode='Markdown')
+    keyboard = await get_main_keyboard(update.effective_user.id)
     await update.message.reply_text("🎯 Главное меню:", reply_markup=keyboard)
 
-async def restart_auto_jobs(application: Application):
-    """Перезапуск всех автопостингов после перезагрузки"""
-    conn = sqlite3.connect('posting_bot.db')
-    c = conn.cursor()
-    c.execute("SELECT user_id, channel_id, topic, interval_minutes FROM auto_posting WHERE is_active = 1 AND topic IS NOT NULL")
-    active_posts = c.fetchall()
-    conn.close()
+# ==================== ОСНОВНОЙ ОБРАБОТЧИК ====================
+async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    data = update.callback_query.data
     
-    for user_id, channel_id, topic, interval in active_posts:
-        if topic and topic in TOPICS:
-            schedule_auto_posting(application, user_id, channel_id, interval, topic)
-            logger.info(f"Восстановлен автопостинг для канала {channel_id} - тема {topic}")
+    if data == "back_main":
+        await back_main(update, context)
+    elif data == "write_post":
+        await write_post_manual(update, context)
+    elif data == "my_channels":
+        await show_channels(update, context)
+    elif data == "add_channel":
+        await add_channel(update, context)
+    elif data == "auto_posting_menu":
+        await auto_posting_menu(update, context)
+    elif data == "tariffs":
+        await show_tariffs(update, context)
+    elif data == "profile":
+        await show_profile(update, context)
+    elif data == "stats":
+        await show_stats(update, context)
+    elif data == "help":
+        await help_command(update, context)
+    elif data.startswith("manual_post_"):
+        await send_manual_post(update, context)
+    elif data.startswith("auto_setup_"):
+        await auto_setup(update, context)
+    elif data.startswith("toggle_auto_"):
+        await toggle_auto(update, context)
+    elif data.startswith("change_interval_"):
+        await change_interval(update, context)
+    elif data.startswith("interval_"):
+        await set_interval(update, context)
+    elif data.startswith("change_topic_"):
+        await change_topic(update, context)
+    elif data.startswith("set_topic_"):
+        await set_topic(update, context)
+    elif data.startswith("back_auto_"):
+        await back_auto(update, context)
+    elif data.startswith("select_tariff_"):
+        await select_tariff(update, context)
 
 # ==================== ЗАПУСК ====================
 def main():
@@ -820,47 +925,29 @@ def main():
     
     # Команды
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("add_channel", add_channel_command))
     application.add_handler(CommandHandler("cancel", cancel))
     
-    # Обработчики сообщений
-    application.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND,
-        lambda u, c: process_add_channel(u, c) if c.user_data.get('adding_channel') 
-        else (handle_post(u, c) if c.user_data.get('post_channel') else None)
-    ))
+    # Обработчики
+    application.add_handler(CallbackQueryHandler(callback_handler))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, 
+                                          lambda u, c: process_add_channel(u, c) if c.user_data.get('adding_channel')
+                                          else publish_manual(u, c) if c.user_data.get('manual_channel')
+                                          else None))
+    application.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO, 
+                                          lambda u, c: publish_manual(u, c) if c.user_data.get('manual_channel') else None))
     
-    # Обработчики медиа
-    application.add_handler(MessageHandler(
-        (filters.PHOTO | filters.VIDEO) & ~filters.COMMAND,
-        handle_post
-    ))
+    # Запускаем фоновый процесс автопостинга
+    async def start_auto_posting():
+        asyncio.create_task(auto_posting_loop(application))
     
-    # Callback handlers
-    application.add_handler(CallbackQueryHandler(write_post, pattern="^write_post$"))
-    application.add_handler(CallbackQueryHandler(my_channels, pattern="^my_channels$"))
-    application.add_handler(CallbackQueryHandler(auto_posting_menu, pattern="^auto_posting_menu$"))
-    application.add_handler(CallbackQueryHandler(repost_menu, pattern="^repost_menu$"))
-    application.add_handler(CallbackQueryHandler(show_tariffs, pattern="^tariffs$"))
-    application.add_handler(CallbackQueryHandler(profile, pattern="^profile$"))
-    application.add_handler(CallbackQueryHandler(stats, pattern="^stats$"))
-    application.add_handler(CallbackQueryHandler(help_command, pattern="^help$"))
-    application.add_handler(CallbackQueryHandler(back_main, pattern="^back_main$"))
-    application.add_handler(CallbackQueryHandler(post_to_channel, pattern="^post_to_"))
-    application.add_handler(CallbackQueryHandler(auto_settings, pattern="^auto_"))
-    application.add_handler(CallbackQueryHandler(toggle_auto, pattern="^toggle_"))
-    application.add_handler(CallbackQueryHandler(topic_menu, pattern="^topic_menu_"))
-    application.add_handler(CallbackQueryHandler(set_topic, pattern="^topic_"))
-    application.add_handler(CallbackQueryHandler(interval_menu, pattern="^interval_menu_"))
-    application.add_handler(CallbackQueryHandler(set_interval, pattern="^interval_"))
-    
-    # Запускаем восстановление автопостингов
-    application.post_init = restart_auto_jobs
+    application.post_init = start_auto_posting
     
     logger.info("🚀 Бот запущен!")
-    logger.info("✅ Автопостинг работает через JobQueue")
+    logger.info("✅ Автопостинг работает!")
+    logger.info("⏱ Доступны интервалы от 1 минуты!")
     
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    application.run_polling()
 
 if __name__ == '__main__':
     main()
+    
