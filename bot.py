@@ -1,8 +1,11 @@
 import asyncio
 import logging
+import time
+import json
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
-import random
+from dataclasses import dataclass, field
+from threading import Thread
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -27,12 +30,105 @@ BOT_TOKEN = "8359617420:AAEh9jNsRtQ2F3jshJ0rgBWMIAH2MHdvCxc"
 # ==================== ХРАНИЛИЩЕ ДАННЫХ В ПАМЯТИ ====================
 class Storage:
     def __init__(self):
-        self.users = {}  # user_id -> user_data
-        self.channels = {}  # user_id -> [channels]
-        self.auto_posting = {}  # channel_id -> auto_settings
-        self.sources = {}  # user_id -> [sources]
-        self.posts = []  # список постов
-        self.posting_tasks = {}  # channel_id -> task
+        self.users = {}  # user_id: user_data
+        self.channels = {}  # user_id: [channels]
+        self.sources = {}  # user_id: [sources]
+        self.posts = {}  # user_id: [posts]
+        self.auto_posting = {}  # channel_id: auto_settings
+        self.subscriptions = {}  # user_id: tariff_data
+        
+    def get_user(self, user_id):
+        if user_id not in self.users:
+            self.users[user_id] = {
+                'username': '',
+                'first_name': '',
+                'joined_date': datetime.now(),
+                'last_active': datetime.now()
+            }
+        return self.users[user_id]
+    
+    def get_channels(self, user_id):
+        if user_id not in self.channels:
+            self.channels[user_id] = []
+        return self.channels[user_id]
+    
+    def add_channel(self, user_id, channel_id, channel_title, channel_username):
+        channels = self.get_channels(user_id)
+        # Проверяем, нет ли уже такого канала
+        for ch in channels:
+            if ch['channel_id'] == channel_id:
+                return False
+        channels.append({
+            'channel_id': channel_id,
+            'channel_title': channel_title,
+            'channel_username': channel_username,
+            'added_date': datetime.now(),
+            'status': 'active'
+        })
+        return True
+    
+    def get_sources(self, user_id):
+        if user_id not in self.sources:
+            self.sources[user_id] = []
+        return self.sources[user_id]
+    
+    def add_source(self, user_id, source_id, source_title, target_channel):
+        sources = self.get_sources(user_id)
+        sources.append({
+            'source_id': source_id,
+            'source_title': source_title,
+            'target_channel': target_channel,
+            'is_active': True,
+            'added_date': datetime.now()
+        })
+    
+    def add_post(self, user_id, channel_id, content, media_id=None, media_type=None):
+        if user_id not in self.posts:
+            self.posts[user_id] = []
+        self.posts[user_id].append({
+            'channel_id': channel_id,
+            'content': content,
+            'media_id': media_id,
+            'media_type': media_type,
+            'posted_time': datetime.now(),
+            'status': 'posted'
+        })
+    
+    def get_auto_settings(self, channel_id):
+        return self.auto_posting.get(channel_id)
+    
+    def set_auto_settings(self, channel_id, user_id, settings):
+        self.auto_posting[channel_id] = {
+            'user_id': user_id,
+            **settings
+        }
+    
+    def delete_auto_settings(self, channel_id):
+        if channel_id in self.auto_posting:
+            del self.auto_posting[channel_id]
+    
+    def get_subscription(self, user_id):
+        if user_id not in self.subscriptions:
+            self.subscriptions[user_id] = {
+                'tariff': 'free',
+                'start_date': datetime.now(),
+                'end_date': datetime.now() + timedelta(days=30),
+                'max_channels': 2,
+                'repost_limit': 20,
+                'post_interval': 60  # минимальный интервал 1 минута
+            }
+        return self.subscriptions[user_id]
+    
+    def update_subscription(self, user_id, tariff):
+        tariff_config = TARIFFS[tariff]
+        self.subscriptions[user_id] = {
+            'tariff': tariff,
+            'start_date': datetime.now(),
+            'end_date': datetime.now() + timedelta(days=30),
+            'max_channels': tariff_config['max_channels'],
+            'repost_limit': tariff_config['repost_limit'],
+            'post_interval': tariff_config['post_interval']
+        }
 
 storage = Storage()
 
@@ -40,21 +136,48 @@ storage = Storage()
 TARIFFS = {
     "free": {
         "name": "🌟 Бесплатный",
+        "price": "0 ₽",
         "max_channels": 2,
-        "post_interval": 60,  # 1 минута в секундах
-        "features": ["✅ 2 канала", "✅ Интервал 1 минута", "✅ 5 тем"]
+        "repost_limit": 20,
+        "post_interval": 300,  # 5 минут
+        "features": [
+            "✅ 2 канала для постинга",
+            "✅ 20 репостов в день",
+            "✅ Интервал от 5 минут",
+            "✅ Ручной постинг",
+            "✅ Базовые темы"
+        ]
     },
     "basic": {
         "name": "📘 Базовый",
+        "price": "0 ₽",
         "max_channels": 5,
-        "post_interval": 30,  # 30 секунд
-        "features": ["✅ 5 каналов", "✅ Интервал 30 секунд", "✅ 10 тем"]
+        "repost_limit": 100,
+        "post_interval": 60,  # 1 минута
+        "features": [
+            "✅ До 5 каналов",
+            "✅ 100 репостов в день",
+            "✅ Интервал от 1 минуты",
+            "✅ Автопостинг",
+            "✅ 10 тем для контента",
+            "✅ Репосты из источников"
+        ]
     },
     "pro": {
         "name": "💎 PRO",
-        "max_channels": 10,
-        "post_interval": 10,  # 10 секунд
-        "features": ["✅ 10 каналов", "✅ Интервал 10 секунд", "✅ 15 тем"]
+        "price": "0 ₽",
+        "max_channels": 15,
+        "repost_limit": 500,
+        "post_interval": 30,  # 30 секунд
+        "features": [
+            "✅ До 15 каналов",
+            "✅ 500 репостов в день",
+            "✅ Интервал от 30 секунд",
+            "✅ ИИ генерация контента",
+            "✅ 15+ тем",
+            "✅ Авторепосты 24/7",
+            "✅ Приоритетная обработка"
+        ]
     }
 }
 
@@ -62,88 +185,185 @@ TARIFFS = {
 TOPICS = {
     "technology": {
         "name": "💻 Технологии",
-        "posts": [
-            "🚀 *Новый прорыв в AI!* Искусственный интеллект теперь может генерировать видео по текстовому описанию. Будущее уже наступило!\n\n#технологии #ai #инновации",
-            "📱 *Топ-5 фишек нового iPhone*: 1) Титановый корпус 2) Бесконечный экран 3) ИИ-камера 4) Зарядка за 5 минут 5) Спутниковая связь\n\n#apple #iphone #гаджеты",
-            "💻 *Python vs JavaScript: что учить в 2024?* Оба языка востребованы, но Python лидирует в AI и Data Science, а JS - в веб-разработке.\n\n#программирование #python #javascript",
-            "🔬 *Квантовые компьютеры стали реальностью!* Google объявил о создании 100-кубитного процессора, способного решать задачи за секунды.\n\n#квантовыевычисления #наука",
-            "🎮 *Новый уровень графики в играх*: Unreal Engine 6 показывает фотореалистичную графику в реальном времени.\n\n#игры #unrealengine #гейминг"
+        "templates": [
+            "🔬 {emoji} Интересный факт о технологиях: {fact}\n\n#технологии #it",
+            "🚀 {emoji} Новинка в мире IT: {fact}\n\n#технологии #инновации",
+            "💡 {emoji} Лайфхак для программистов: {fact}\n\n#программирование #лайфхак"
+        ],
+        "facts": [
+            "Первый компьютер весил более 27 тонн!",
+            "Современный смартфон мощнее компьютеров 90-х в тысячи раз",
+            "Python - один из самых популярных языков программирования",
+            "Искусственный интеллект уже пишет код лучше некоторых программистов"
         ]
     },
     "business": {
         "name": "📊 Бизнес",
-        "posts": [
-            "💼 *Как выйти на пассивный доход за 3 месяца?* Топ-5 стратегий для начинающих предпринимателей.\n\n#бизнес #пассивныйдоход #стартап",
-            "📈 *Крипторынок обновил максимумы!* Биткоин достиг $100,000. Что дальше? Аналитика и прогнозы.\n\n#криптовалюта #биткоин #инвестиции",
-            "🏢 *Как масштабировать бизнес в 10 раз?* Реальные кейсы и стратегии роста.\n\n#масштабирование #бизнесстратегия",
-            "💰 *Фриланс 2024: какие навыки самые дорогие?* Топ-10 востребованных профессий с доходом от $5000.\n\n#фриланс #заработок #удаленка",
-            "📊 *Секреты успешных инвесторов*: 5 правил, которые работают всегда.\n\n#инвестиции #финансы #успех"
+        "templates": [
+            "💼 {emoji} Бизнес-совет дня: {fact}\n\n#бизнес #успех",
+            "📈 {emoji} Как увеличить продажи: {fact}\n\n#маркетинг #бизнес",
+            "🎯 {emoji} Секрет успешных предпринимателей: {fact}\n\n#мотивация #бизнес"
+        ],
+        "facts": [
+            "80% бизнеса закрываются в первый год",
+            "Лучший способ удержать клиента - качественный сервис",
+            "Социальные сети - главный канал продвижения сегодня",
+            "Автоматизация увеличивает прибыль на 40%"
         ]
     },
     "health": {
         "name": "⚕️ Здоровье",
-        "posts": [
-            "🏃‍♂️ *Утренняя зарядка 5 минут*: комплекс упражнений для бодрости на весь день!\n\n#здоровье #фитнес #зарядка",
-            "🥗 *Правильное питание*: 10 продуктов, которые стоит есть каждый день.\n\n#здоровоепитание #пп #советы",
-            "🧘 *Медитация для начинающих*: 3 простых техники для снижения стресса.\n\n#медитация #релакс #психология",
-            "💪 *Тренировка дома*: комплекс на 15 минут для всех групп мышц.\n\n#фитнес #тренировкадома #спорт",
-            "😴 *Как высыпаться за 5 часов?* Техники глубокого сна и восстановления.\n\n#сон #здоровье #продуктивность"
+        "templates": [
+            "🏃 {emoji} Совет для здоровья: {fact}\n\n#здоровье #советы",
+            "🥗 {emoji} Правильное питание: {fact}\n\n#зож #питание",
+            "🧘 {emoji} Забота о себе: {fact}\n\n#здоровье #wellness"
+        ],
+        "facts": [
+            "Утренняя зарядка продлевает жизнь на 5 лет",
+            "Вода - основа здоровья, пейте 2 литра в день",
+            "Сон 7-8 часов необходим для восстановления",
+            "Стресс - главный враг иммунитета"
         ]
     },
     "education": {
         "name": "📚 Образование",
-        "posts": [
-            "📖 *Как выучить английский за 3 месяца?* Методика полиглотов, которая работает.\n\n#английский #обучение #саморазвитие",
-            "🎓 *Топ-10 бесплатных курсов 2024*: от программирования до маркетинга.\n\n#образование #курсы #бесплатно",
-            "🧠 *Скорочтение за неделю*: упражнения для развития быстрого чтения.\n\n#скорочтение #развитие #память",
-            "📚 *Книги, которые изменят вашу жизнь*: подборка из 10 must-read.\n\n#книги #саморазвитие #мотивация",
-            "🎯 *Как достигать любых целей?* Система SMART и пошаговый план.\n\n#цели #успех #мотивация"
+        "templates": [
+            "🎓 {emoji} Полезный факт: {fact}\n\n#образование #обучение",
+            "📖 {emoji} Знания - сила: {fact}\n\n#саморазвитие #навыки",
+            "💡 {emoji} Интересно знать: {fact}\n\n#образование #факты"
+        ],
+        "facts": [
+            "Чтение развивает мозг и повышает IQ",
+            "Изучение языков снижает риск деменции",
+            "Лучшее время для учебы - утро",
+            "Практика важнее теории в 10 раз"
         ]
     },
     "entertainment": {
         "name": "🎬 Развлечения",
-        "posts": [
-            "🎬 *Топ-10 фильмов 2024*: что обязательно посмотреть!\n\n#кино #фильмы #кинотеатр",
-            "🎵 *Музыкальные новинки*: лучшие треки этой недели 🎧\n\n#музыка #новинки #плейлист",
-            "😂 *Мемы дня*: подборка самых смешных мемов из интернета 🤣\n\n#мемы #юмор #ржака",
-            "🎮 *Новые игры месяца*: во что поиграть на выходных?\n\n#игры #новинки #гейминг",
-            "🍿 *Что посмотреть вечером?* Подборка лучших сериалов 2024 года.\n\n#сериалы #кино #вечернийпросмотр"
+        "templates": [
+            "😄 {emoji} Прикол дня: {fact}\n\n#юмор #развлечения",
+            "🎮 {emoji} Факт из мира игр: {fact}\n\n#игры #гики",
+            "🎥 {emoji} Кино-лайфхак: {fact}\n\n#кино #развлечения"
+        ],
+        "facts": [
+            "Смех продлевает жизнь и снимает стресс",
+            "Minecraft - самая продаваемая игра в истории",
+            "Самый длинный фильм длится 10 часов",
+            "Мемы стали частью современной культуры"
         ]
     },
     "lifestyle": {
         "name": "🌟 Лайфстайл",
-        "posts": [
-            "🏠 *Как организовать идеальный дом?* 10 лайфхаков для уюта.\n\n#дом #уют #лайфхаки",
-            "✈️ *Путешествия мечты*: топ-5 мест, которые нужно посетить.\n\n#путешествия #отдых #впечатления",
-            "📸 *Фото на iPhone как у профессионала*: секреты идеальных снимков.\n\n#фото #iphone #лайфхаки",
-            "🎨 *Хобби, которые приносят доход*: от вышивки до блогинга.\n\n#хобби #заработок #творчество",
-            "💑 *Отношения без ссор*: 5 правил счастливой пары.\n\n#отношения #психология #любовь"
+        "templates": [
+            "✨ {emoji} Лайфхак для жизни: {fact}\n\n#лайфхак #советы",
+            "💪 {emoji} Полезный совет: {fact}\n\n#жизнь #мотивация",
+            "🎯 {emoji} Секрет успеха: {fact}\n\n#успех #жизнь"
+        ],
+        "facts": [
+            "Ведите список дел - это повышает продуктивность",
+            "Медитация улучшает концентрацию на 30%",
+            "Путешествия расширяют кругозор",
+            "Хобби делает жизнь интереснее"
         ]
     },
-    "news": {
-        "name": "📰 Новости",
-        "posts": [
-            "🌍 *Главные новости дня*: что произошло в мире за последние часы.\n\n#новости #мир #события",
-            "🚀 *Elon Musk представил новый проект*: Neuralink позволяет управлять компьютером силой мысли.\n\n#технологии #илонмаск #новости",
-            "💰 *Курс валют на сегодня*: актуальная информация от Центробанка.\n\n#курсвалют #финансы #экономика",
-            "⚡️ *Срочная новость*: важное событие, о котором все говорят.\n\n #срочно #новости #важно",
-            "📈 *Биржи растут*: аналитика и прогнозы на сегодня.\n\n #биржи #инвестиции #новости"
-        ]
-    },
-    "cooking": {
-        "name": "🍳 Кулинария",
-        "posts": [
-            "🍕 *Идеальная пицца за 30 минут*: простой рецепт, как в Италии!\n\n#пицца #рецепт #кулинария",
-            "🍰 *Торт без выпечки за 15 минут*: вкуснее, чем в магазине.\n\n#десерт #рецепт #торт",
-            "🥗 *Полезный завтрак за 5 минут*: овсяноблин с начинкой.\n\n#завтрак #пп #здоровоепитание",
-            "🍲 *Борщ как у бабушки*: секретный рецепт наваристого супа.\n\n#борщ #первоеблюдо #рецепт",
-            "🍪 *Печенье из 3 ингредиентов*: быстро, вкусно, бюджетно!\n\n#печенье #десерт #рецепт"
+    "motivation": {
+        "name": "💪 Мотивация",
+        "templates": [
+            "🔥 {emoji} Мотивация на сегодня: {fact}\n\n#мотивация #успех",
+            "⭐ {emoji} Вдохновение: {fact}\n\n#вдохновение #цели",
+            "🚀 {emoji} Действуй сегодня: {fact}\n\n#мотивация #развитие"
+        ],
+        "facts": [
+            "Успех приходит к тем, кто не сдается",
+            "Каждый день - новая возможность",
+            "Верьте в себя и у вас все получится",
+            "Маленькие шаги ведут к большим целям"
         ]
     }
 }
 
+# ==================== АВТОПОСТИНГ ====================
+import random
+
+async def auto_posting_worker():
+    """Фоновый процесс автопостинга"""
+    while True:
+        try:
+            current_time = datetime.now()
+            
+            # Перебираем все настройки автопостинга
+            for channel_id, settings in list(storage.auto_posting.items()):
+                if not settings.get('is_active', False):
+                    continue
+                
+                # Проверяем интервал
+                last_post = settings.get('last_post_time')
+                interval_minutes = settings.get('interval', 60)  # интервал в минутах
+                
+                if last_post:
+                    time_diff = (current_time - last_post).total_seconds() / 60
+                    if time_diff < interval_minutes:
+                        continue
+                
+                # Получаем тему
+                topic = settings.get('topic')
+                if not topic or topic not in TOPICS:
+                    continue
+                
+                # Получаем информацию о пользователе
+                user_id = settings.get('user_id')
+                if not user_id:
+                    continue
+                
+                # Генерируем пост
+                post_content = generate_post_content(topic)
+                
+                # Отправляем пост
+                try:
+                    # Получаем application из глобальной переменной
+                    from telegram.ext import Application
+                    # Нужно хранить application в глобальной переменной
+                    if 'app' in globals():
+                        await app.bot.send_message(chat_id=channel_id, text=post_content)
+                        
+                        # Обновляем время последнего поста
+                        settings['last_post_time'] = datetime.now()
+                        storage.set_auto_settings(channel_id, user_id, settings)
+                        
+                        # Сохраняем пост в историю
+                        storage.add_post(user_id, channel_id, post_content)
+                        
+                        logger.info(f"Автопост отправлен в канал {channel_id}")
+                except Exception as e:
+                    logger.error(f"Ошибка автопостинга в {channel_id}: {e}")
+            
+            await asyncio.sleep(30)  # Проверяем каждые 30 секунд
+            
+        except Exception as e:
+            logger.error(f"Ошибка в автопостинге: {e}")
+            await asyncio.sleep(60)
+
+def generate_post_content(topic_key):
+    """Генерация контента для поста"""
+    topic = TOPICS[topic_key]
+    
+    # Выбираем случайный шаблон и факт
+    template = random.choice(topic['templates'])
+    fact = random.choice(topic['facts'])
+    
+    # Случайные эмодзи для разнообразия
+    emojis = ['✨', '⭐', '🌟', '💫', '⚡', '🔥', '💪', '🎯', '📌', '💡']
+    emoji = random.choice(emojis)
+    
+    # Формируем пост
+    post = template.format(emoji=emoji, fact=fact)
+    
+    return post
+
 # ==================== КЛАВИАТУРЫ ====================
 async def get_main_keyboard(user_id: int):
+    """Главная клавиатура"""
     keyboard = [
         [InlineKeyboardButton("📝 Написать пост", callback_data="write_post")],
         [InlineKeyboardButton("📢 Мои каналы", callback_data="my_channels")],
@@ -152,257 +372,213 @@ async def get_main_keyboard(user_id: int):
         [InlineKeyboardButton("💎 Тарифы", callback_data="tariffs")],
         [InlineKeyboardButton("👤 Профиль", callback_data="profile")],
         [InlineKeyboardButton("📊 Статистика", callback_data="stats")],
-        [InlineKeyboardButton("❓ Помощь", callback_data="help")]
+        [InlineKeyboardButton("ℹ️ Помощь", callback_data="help")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
 async def get_channels_keyboard(user_id: int):
-    user_channels = storage.channels.get(user_id, [])
+    """Клавиатура со списком каналов"""
+    channels = storage.get_channels(user_id)
     
     keyboard = []
-    for channel in user_channels:
-        keyboard.append([
-            InlineKeyboardButton(f"📢 {channel['title']}", callback_data=f"channel_{channel['id']}")
-        ])
+    for channel in channels:
+        if channel['status'] == 'active':
+            keyboard.append([
+                InlineKeyboardButton(f"📢 {channel['channel_title']}", callback_data=f"channel_{channel['channel_id']}")
+            ])
     
-    keyboard.append([InlineKeyboardButton("➕ Добавить канал", callback_data="add_channel")])
-    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_main")])
-    return InlineKeyboardMarkup(keyboard)
-
-async def get_auto_keyboard(user_id: int):
-    user_channels = storage.channels.get(user_id, [])
-    
-    keyboard = []
-    for channel in user_channels:
-        # Проверяем статус автопостинга
-        auto_settings = storage.auto_posting.get(channel['id'])
-        status = "✅" if auto_settings and auto_settings.get('active') else "❌"
-        keyboard.append([
-            InlineKeyboardButton(f"{status} {channel['title']}", callback_data=f"auto_channel_{channel['id']}")
-        ])
+    if not channels:
+        keyboard.append([InlineKeyboardButton("➕ Добавить канал", callback_data="add_channel")])
     
     keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_main")])
     return InlineKeyboardMarkup(keyboard)
 
-async def get_interval_keyboard(channel_id: str):
-    keyboard = [
-        [InlineKeyboardButton("⏱ 1 минута", callback_data=f"interval_{channel_id}_60")],
-        [InlineKeyboardButton("⏱ 5 минут", callback_data=f"interval_{channel_id}_300")],
-        [InlineKeyboardButton("⏱ 10 минут", callback_data=f"interval_{channel_id}_600")],
-        [InlineKeyboardButton("⏱ 30 минут", callback_data=f"interval_{channel_id}_1800")],
-        [InlineKeyboardButton("⏱ 1 час", callback_data=f"interval_{channel_id}_3600")],
-        [InlineKeyboardButton("🔙 Назад", callback_data=f"auto_channel_{channel_id}")]
-    ]
+async def get_auto_channels_keyboard(user_id: int):
+    """Клавиатура для выбора канала автопостинга"""
+    channels = storage.get_channels(user_id)
+    
+    keyboard = []
+    for channel in channels:
+        if channel['status'] == 'active':
+            settings = storage.get_auto_settings(channel['channel_id'])
+            status = "✅" if settings and settings.get('is_active') else "❌"
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"{status} {channel['channel_title']}", 
+                    callback_data=f"auto_channel_{channel['channel_id']}"
+                )
+            ])
+    
+    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_main")])
     return InlineKeyboardMarkup(keyboard)
 
-# ==================== АВТОПОСТИНГ ====================
-async def auto_posting_task(channel_id: str, user_id: int, bot):
-    """Задача автопостинга для канала"""
-    while True:
-        try:
-            # Получаем настройки
-            settings = storage.auto_posting.get(channel_id)
-            if not settings or not settings.get('active'):
-                logger.info(f"Автопостинг для канала {channel_id} остановлен")
-                break
-            
-            topic = settings.get('topic')
-            interval = settings.get('interval', 60)
-            
-            if topic and topic in TOPICS:
-                # Выбираем случайный пост из темы
-                posts_list = TOPICS[topic]['posts']
-                post_text = random.choice(posts_list)
-                
-                # Отправляем пост
-                try:
-                    await bot.send_message(chat_id=channel_id, text=post_text, parse_mode='Markdown')
-                    logger.info(f"Автопост отправлен в канал {channel_id} на тему {topic}")
-                    
-                    # Обновляем статистику
-                    storage.posts.append({
-                        'channel_id': channel_id,
-                        'user_id': user_id,
-                        'content': post_text,
-                        'time': datetime.now()
-                    })
-                except Exception as e:
-                    logger.error(f"Ошибка отправки авто поста: {e}")
-            
-            # Ждем указанный интервал
-            await asyncio.sleep(interval)
-            
-        except asyncio.CancelledError:
-            logger.info(f"Задача автопостинга для канала {channel_id} отменена")
-            break
-        except Exception as e:
-            logger.error(f"Ошибка в автопостинге для {channel_id}: {e}")
-            await asyncio.sleep(60)
+async def get_topics_keyboard(channel_id: str):
+    """Клавиатура выбора темы"""
+    keyboard = []
+    for topic_key, topic_info in TOPICS.items():
+        keyboard.append([
+            InlineKeyboardButton(f"{topic_info['name']}", callback_data=f"set_topic_{channel_id}_{topic_key}")
+        ])
+    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="auto_posting")])
+    return InlineKeyboardMarkup(keyboard)
 
-def start_auto_posting(channel_id: str, user_id: int, bot):
-    """Запуск автопостинга для канала"""
-    if channel_id in storage.posting_tasks:
-        storage.posting_tasks[channel_id].cancel()
+async def get_interval_keyboard(channel_id: str, current_interval: int):
+    """Клавиатура выбора интервала"""
+    intervals = [1, 5, 10, 15, 30, 60, 120, 240]  # минуты
+    keyboard = []
+    row = []
     
-    task = asyncio.create_task(auto_posting_task(channel_id, user_id, bot))
-    storage.posting_tasks[channel_id] = task
-
-def stop_auto_posting(channel_id: str):
-    """Остановка автопостинга для канала"""
-    if channel_id in storage.posting_tasks:
-        storage.posting_tasks[channel_id].cancel()
-        del storage.posting_tasks[channel_id]
+    for interval in intervals:
+        text = f"{interval} мин"
+        if interval == current_interval:
+            text = f"✅ {text}"
+        row.append(InlineKeyboardButton(text, callback_data=f"interval_{channel_id}_{interval}"))
+        
+        if len(row) == 4:
+            keyboard.append(row)
+            row = []
+    
+    if row:
+        keyboard.append(row)
+    
+    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data=f"auto_channel_{channel_id}")])
+    return InlineKeyboardMarkup(keyboard)
 
 # ==================== ОБРАБОТЧИКИ ====================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     
     # Регистрируем пользователя
-    if user.id not in storage.users:
-        storage.users[user.id] = {
-            'id': user.id,
-            'name': user.first_name,
-            'username': user.username,
-            'tariff': 'free',
-            'joined': datetime.now()
-        }
+    storage.get_user(user.id)
+    storage.get_subscription(user.id)
     
     welcome_text = (
-        f"✨ *Привет, {user.first_name}!*\n\n"
-        f"🤖 *Я бот для автоматического постинга*\n\n"
+        f"✨ *Добро пожаловать, {user.first_name}!*\n\n"
+        f"🤖 *Я бот для автоматического постинга в Telegram каналы*\n\n"
         f"📋 *Мои возможности:*\n"
-        f"• 📝 Ручная публикация постов\n"
-        f"• 🤖 Автопостинг с интервалом от 1 минуты\n"
-        f"• 🔄 Репосты из других каналов\n"
-        f"• 🎭 9 тем для контента\n\n"
+        f"• 📝 Писать посты в каналы\n"
+        f"• 🔄 Делать репосты\n"
+        f"• ⚙️ Автопостинг с интервалом от 1 минуты\n"
+        f"• 🎯 8 тем для генерации контента\n\n"
         f"🚀 *Как начать:*\n"
         f"1️⃣ Добавьте меня в канал как администратора\n"
-        f"2️⃣ Добавьте канал через кнопку 'Мои каналы'\n"
-        f"3️⃣ Включите автопостинг и выберите тему!\n\n"
-        f"💡 *Автопостинг работает сразу после включения!*"
+        f"2️⃣ Добавьте канал через меню 'Мои каналы'\n"
+        f"3️⃣ Настройте автопостинг!\n\n"
+        f"💎 *Все тарифы бесплатны!*\n"
+        f"⚡ *Минимальный интервал: от 30 секунд на PRO тарифе*"
     )
     
     keyboard = await get_main_keyboard(user.id)
     await update.message.reply_text(welcome_text, parse_mode='Markdown', reply_markup=keyboard)
 
-async def add_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def add_channel_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Начало добавления канала"""
     query = update.callback_query
     await query.answer()
+    
+    user = query.from_user
+    subscription = storage.get_subscription(user.id)
+    channels = storage.get_channels(user.id)
+    active_channels = [ch for ch in channels if ch['status'] == 'active']
+    
+    if len(active_channels) >= subscription['max_channels']:
+        tariff_name = TARIFFS[subscription['tariff']]['name']
+        await query.edit_message_text(
+            f"❌ *Достигнут лимит каналов!*\n\n"
+            f"Ваш тариф: {tariff_name}\n"
+            f"Максимум: {subscription['max_channels']} каналов\n\n"
+            f"Чтобы добавить больше каналов, перейдите на другой тариф в меню 'Тарифы'",
+            parse_mode='Markdown'
+        )
+        return
     
     await query.edit_message_text(
         "📢 *Добавление канала*\n\n"
         "1️⃣ Добавьте бота в канал как администратора\n"
-        "2️⃣ Перешлите ЛЮБОЕ сообщение из канала сюда\n\n"
-        "Или отправьте:\n"
-        "• Ссылку на канал: https://t.me/username\n"
-        "• ID канала: -1001234567890\n\n"
-        "⚠️ *Бот должен быть администратором!*",
+        "2️⃣ Отправьте ID канала или ссылку\n\n"
+        "📝 *Как получить ID канала:*\n"
+        "• Форвардните любое сообщение из канала боту\n"
+        "• Или отправьте ссылку: `@channel_username`\n"
+        "• Или: `https://t.me/channel_username`\n\n"
+        "Отправьте ссылку на канал:",
         parse_mode='Markdown'
     )
     context.user_data['adding_channel'] = True
 
 async def process_add_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка добавления канала"""
     user = update.effective_user
-    message = update.message
+    channel_input = update.message.text.strip()
     
-    channel_id = None
-    channel_title = None
+    # Извлекаем ID канала
+    channel_username = None
+    if "t.me/" in channel_input:
+        channel_username = channel_input.split("t.me/")[-1]
+        if "/" in channel_username:
+            channel_username = channel_username.split("/")[0]
+        channel_id = f"@{channel_username}"
+    elif channel_input.startswith("@"):
+        channel_username = channel_input[1:]
+        channel_id = channel_input
+    else:
+        channel_id = channel_input
     
     try:
-        # Если переслано сообщение из канала
-        if message.forward_from_chat:
-            channel_id = str(message.forward_from_chat.id)
-            channel_title = message.forward_from_chat.title
-        else:
-            # Пробуем получить канал по тексту
-            text = message.text.strip()
-            if text.startswith('@') or 't.me/' in text:
-                # Извлекаем username
-                if 't.me/' in text:
-                    username = text.split('t.me/')[-1]
-                else:
-                    username = text[1:]
-                
-                # Получаем информацию о канале
-                chat = await context.bot.get_chat(chat_id=f"@{username}")
-                channel_id = str(chat.id)
-                channel_title = chat.title
-            elif text.startswith('-100'):
-                chat = await context.bot.get_chat(chat_id=text)
-                channel_id = str(chat.id)
-                channel_title = chat.title
-            else:
-                await message.reply_text("❌ Неверный формат. Перешлите сообщение из канала или отправьте ссылку.")
-                return
+        # Получаем информацию о канале
+        chat = await context.bot.get_chat(chat_id=channel_id)
         
-        # Проверяем тариф и лимиты
-        user_tariff = storage.users[user.id]['tariff']
-        max_channels = TARIFFS[user_tariff]['max_channels']
-        user_channels = storage.channels.get(user.id, [])
-        
-        if len(user_channels) >= max_channels:
-            await message.reply_text(
-                f"❌ Достигнут лимит каналов для тарифа '{TARIFFS[user_tariff]['name']}'\n"
-                f"Максимум: {max_channels} каналов"
-            )
+        if chat.type not in ['channel', 'supergroup']:
+            await update.message.reply_text("❌ Это не канал. Отправьте ссылку на канал.")
             return
         
-        # Проверяем, не добавлен ли уже
-        for ch in user_channels:
-            if ch['id'] == channel_id:
-                await message.reply_text("❌ Этот канал уже добавлен!")
-                return
-        
-        # Добавляем канал
-        new_channel = {
-            'id': channel_id,
-            'title': channel_title,
-            'added': datetime.now()
-        }
-        
-        if user.id not in storage.channels:
-            storage.channels[user.id] = []
-        storage.channels[user.id].append(new_channel)
-        
-        await message.reply_text(
-            f"✅ *Канал добавлен!*\n\n"
-            f"📢 Название: {channel_title}\n"
-            f"🆔 ID: {channel_id}\n\n"
-            f"Теперь вы можете:\n"
-            f"• Написать пост вручную\n"
-            f"• Включить автопостинг\n"
-            f"• Настроить репосты",
-            parse_mode='Markdown'
-        )
+        # Сохраняем канал
+        if storage.add_channel(user.id, str(chat.id), chat.title, channel_username or ""):
+            await update.message.reply_text(
+                f"✅ *Канал добавлен!*\n\n"
+                f"📢 Название: {chat.title}\n"
+                f"🆔 ID: {chat.id}\n\n"
+                f"Теперь вы можете настраивать автопостинг!",
+                parse_mode='Markdown'
+            )
+        else:
+            await update.message.reply_text("❌ Этот канал уже добавлен!")
         
         context.user_data['adding_channel'] = False
         
+        # Показываем главное меню
+        keyboard = await get_main_keyboard(user.id)
+        await update.message.reply_text("🎯 Главное меню:", reply_markup=keyboard)
+        
     except Exception as e:
-        await message.reply_text(
-            f"❌ Ошибка: {str(e)}\n\n"
-            f"Убедитесь, что:\n"
+        await update.message.reply_text(
+            f"❌ *Ошибка:* {str(e)}\n\n"
+            f"Убедитесь что:\n"
             f"• Бот добавлен в канал как администратор\n"
-            f"• У бота есть права на публикацию"
+            f"• Ссылка на канал правильная",
+            parse_mode='Markdown'
         )
 
 async def write_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Написать пост"""
     query = update.callback_query
     await query.answer()
     
-    user_channels = storage.channels.get(query.from_user.id, [])
+    user = query.from_user
+    channels = storage.get_channels(user.id)
+    active_channels = [ch for ch in channels if ch['status'] == 'active']
     
-    if not user_channels:
+    if not active_channels:
         await query.edit_message_text(
-            "❌ *У вас нет добавленных каналов!*\n\n"
+            "❌ *Нет добавленных каналов!*\n\n"
             "Сначала добавьте канал через меню 'Мои каналы'",
             parse_mode='Markdown'
         )
         return
     
     keyboard = []
-    for channel in user_channels:
+    for channel in active_channels:
         keyboard.append([
-            InlineKeyboardButton(f"📢 {channel['title']}", callback_data=f"post_channel_{channel['id']}")
+            InlineKeyboardButton(f"📢 {channel['channel_title']}", callback_data=f"select_channel_{channel['channel_id']}")
         ])
     keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_main")])
     
@@ -413,80 +589,94 @@ async def write_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def post_to_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Публикация поста"""
     query = update.callback_query
     await query.answer()
     
-    channel_id = query.data.replace("post_channel_", "")
+    channel_id = query.data.replace("select_channel_", "")
     context.user_data['post_channel_id'] = channel_id
     
     await query.edit_message_text(
-        "📝 *Напишите ваш пост*\n\n"
-        "Вы можете отправить:\n"
-        "• Текст сообщения\n"
-        "• Фото с подписью\n"
-        "• Видео с подписью\n\n"
+        "📝 *Напишите пост*\n\n"
+        "Отправьте текст, фото или видео с подписью\n"
         "Используйте /cancel для отмены",
         parse_mode='Markdown'
     )
     context.user_data['awaiting_post'] = True
 
-async def handle_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_post_content(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка контента для поста"""
     user = update.effective_user
     channel_id = context.user_data.get('post_channel_id')
     
     if not channel_id:
-        await update.message.reply_text("❌ Сессия истекла. Начните заново /start")
+        await update.message.reply_text("❌ Сессия истекла")
         return
+    
+    # Получаем текст
+    caption = None
+    media_id = None
+    media_type = None
+    
+    if update.message.text:
+        caption = update.message.text
+    elif update.message.caption:
+        caption = update.message.caption
+        if update.message.photo:
+            media_id = update.message.photo[-1].file_id
+            media_type = 'photo'
+        elif update.message.video:
+            media_id = update.message.video.file_id
+            media_type = 'video'
+    elif update.message.photo:
+        media_id = update.message.photo[-1].file_id
+        media_type = 'photo'
+    elif update.message.video:
+        media_id = update.message.video.file_id
+        media_type = 'video'
     
     try:
         # Отправляем пост
-        if update.message.text:
-            await context.bot.send_message(chat_id=channel_id, text=update.message.text, parse_mode='Markdown')
-        elif update.message.photo:
-            caption = update.message.caption or ""
-            await context.bot.send_photo(chat_id=channel_id, photo=update.message.photo[-1].file_id, caption=caption, parse_mode='Markdown')
-        elif update.message.video:
-            caption = update.message.caption or ""
-            await context.bot.send_video(chat_id=channel_id, video=update.message.video.file_id, caption=caption, parse_mode='Markdown')
+        if media_id and media_type == 'photo':
+            await context.bot.send_photo(chat_id=channel_id, photo=media_id, caption=caption or "")
+        elif media_id and media_type == 'video':
+            await context.bot.send_video(chat_id=channel_id, video=media_id, caption=caption or "")
         else:
-            await update.message.reply_text("❌ Неподдерживаемый тип сообщения")
-            return
+            await context.bot.send_message(chat_id=channel_id, text=caption or "")
         
-        # Сохраняем в статистику
-        storage.posts.append({
-            'channel_id': channel_id,
-            'user_id': user.id,
-            'content': update.message.text or update.message.caption,
-            'time': datetime.now()
-        })
+        # Сохраняем в историю
+        storage.add_post(user.id, channel_id, caption or "", media_id, media_type)
         
-        await update.message.reply_text("✅ *Пост успешно опубликован!*", parse_mode='Markdown')
+        await update.message.reply_text("✅ *Пост опубликован!*", parse_mode='Markdown')
         
         context.user_data['awaiting_post'] = False
         context.user_data['post_channel_id'] = None
         
-        # Показываем главное меню
+        # Показываем меню
         keyboard = await get_main_keyboard(user.id)
         await update.message.reply_text("🎯 Главное меню:", reply_markup=keyboard)
         
     except Exception as e:
-        await update.message.reply_text(f"❌ Ошибка: {str(e)}")
+        await update.message.reply_text(f"❌ *Ошибка:* {str(e)}", parse_mode='Markdown')
 
-async def auto_posting_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def setup_auto_posting(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Настройка автопостинга"""
     query = update.callback_query
     await query.answer()
     
-    user_channels = storage.channels.get(query.from_user.id, [])
+    user = query.from_user
+    channels = storage.get_channels(user.id)
+    active_channels = [ch for ch in channels if ch['status'] == 'active']
     
-    if not user_channels:
+    if not active_channels:
         await query.edit_message_text(
-            "❌ *У вас нет добавленных каналов!*\n\n"
-            "Сначала добавьте канал для автопостинга",
+            "❌ *Нет добавленных каналов!*\n\n"
+            "Сначала добавьте канал",
             parse_mode='Markdown'
         )
         return
     
-    keyboard = await get_auto_keyboard(query.from_user.id)
+    keyboard = await get_auto_channels_keyboard(user.id)
     await query.edit_message_text(
         "⚙️ *Настройка автопостинга*\n\n"
         "✅ - автопостинг активен\n"
@@ -497,32 +687,41 @@ async def auto_posting_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def configure_auto_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Конфигурация автопостинга для канала"""
     query = update.callback_query
     await query.answer()
     
     channel_id = query.data.replace("auto_channel_", "")
     context.user_data['auto_channel_id'] = channel_id
     
-    settings = storage.auto_posting.get(channel_id, {})
-    is_active = settings.get('active', False)
-    topic = settings.get('topic')
-    interval = settings.get('interval', 60)
+    settings = storage.get_auto_settings(channel_id)
     
-    topic_name = TOPICS.get(topic, {}).get('name', 'Не выбрана') if topic else 'Не выбрана'
-    interval_min = interval // 60
+    is_active = settings.get('is_active', False) if settings else False
+    topic = settings.get('topic', 'technology') if settings else 'technology'
+    interval = settings.get('interval', 60) if settings else 60
     
+    topic_name = TOPICS.get(topic, TOPICS['technology'])['name']
     status_text = "✅ АКТИВЕН" if is_active else "❌ НЕАКТИВЕН"
+    
+    # Получаем информацию о канале
+    channels = storage.get_channels(query.from_user.id)
+    channel_title = channel_id
+    for ch in channels:
+        if ch['channel_id'] == channel_id:
+            channel_title = ch['channel_title']
+            break
     
     text = (
         f"⚙️ *Настройки автопостинга*\n\n"
+        f"📢 Канал: {channel_title}\n"
         f"🔄 Статус: {status_text}\n"
         f"📝 Тема: {topic_name}\n"
-        f"⏱ Интервал: {interval_min} мин.\n\n"
+        f"⏱ Интервал: {interval} минут\n\n"
         f"Выберите действие:"
     )
     
     keyboard = [
-        [InlineKeyboardButton("🔄 Вкл/Выкл", callback_data=f"toggle_auto_{channel_id}")],
+        [InlineKeyboardButton(f"🔄 {'Выключить' if is_active else 'Включить'}", callback_data=f"toggle_auto_{channel_id}")],
         [InlineKeyboardButton("📝 Выбрать тему", callback_data=f"select_topic_{channel_id}")],
         [InlineKeyboardButton("⏱ Интервал постинга", callback_data=f"change_interval_{channel_id}")],
         [InlineKeyboardButton("🔙 Назад", callback_data="auto_posting")]
@@ -530,62 +729,23 @@ async def configure_auto_channel(update: Update, context: ContextTypes.DEFAULT_T
     
     await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
 
-async def toggle_auto(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    channel_id = query.data.replace("toggle_auto_", "")
-    user_id = query.from_user.id
-    
-    settings = storage.auto_posting.get(channel_id, {})
-    
-    if settings.get('active', False):
-        # Останавливаем автопостинг
-        stop_auto_posting(channel_id)
-        settings['active'] = False
-        storage.auto_posting[channel_id] = settings
-        await query.edit_message_text("⏹ *Автопостинг остановлен*", parse_mode='Markdown')
-    else:
-        # Проверяем выбрана ли тема
-        if not settings.get('topic'):
-            await query.edit_message_text(
-                "❌ *Сначала выберите тему для постов!*\n"
-                "Нажмите кнопку 'Выбрать тему'",
-                parse_mode='Markdown'
-            )
-            await asyncio.sleep(2)
-            await configure_auto_channel(update, context)
-            return
-        
-        # Запускаем автопостинг
-        settings['active'] = True
-        storage.auto_posting[channel_id] = settings
-        start_auto_posting(channel_id, user_id, context.bot)
-        await query.edit_message_text("▶️ *Автопостинг запущен!*", parse_mode='Markdown')
-    
-    await asyncio.sleep(1)
-    await configure_auto_channel(update, context)
-
-async def select_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def select_topic_for_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Выбор темы"""
     query = update.callback_query
     await query.answer()
     
     channel_id = query.data.replace("select_topic_", "")
-    
-    keyboard = []
-    for topic_key, topic_info in TOPICS.items():
-        keyboard.append([
-            InlineKeyboardButton(f"{topic_info['name']}", callback_data=f"set_topic_{channel_id}_{topic_key}")
-        ])
-    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data=f"auto_channel_{channel_id}")])
+    keyboard = await get_topics_keyboard(channel_id)
     
     await query.edit_message_text(
-        "📝 *Выберите тему для автопостинга:*",
+        "📝 *Выберите тему для автопостинга:*\n\n"
+        "Посты будут генерироваться на выбранную тему",
         parse_mode='Markdown',
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup=keyboard
     )
 
 async def set_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Установка темы"""
     query = update.callback_query
     await query.answer()
     
@@ -593,14 +753,19 @@ async def set_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     channel_id = parts[2]
     topic_key = parts[3]
     
-    if channel_id not in storage.auto_posting:
-        storage.auto_posting[channel_id] = {}
+    # Получаем текущие настройки
+    settings = storage.get_auto_settings(channel_id) or {}
+    settings['topic'] = topic_key
+    settings['user_id'] = query.from_user.id
     
-    storage.auto_posting[channel_id]['topic'] = topic_key
+    storage.set_auto_settings(channel_id, query.from_user.id, settings)
+    
+    topic_name = TOPICS[topic_key]['name']
     
     await query.edit_message_text(
-        f"✅ *Тема выбрана:* {TOPICS[topic_key]['name']}\n\n"
-        f"Теперь включите автопостинг!",
+        f"✅ *Тема установлена!*\n\n"
+        f"📝 Тема: {topic_name}\n\n"
+        f"Теперь включите автопостинг",
         parse_mode='Markdown'
     )
     
@@ -608,20 +773,25 @@ async def set_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await configure_auto_channel(update, context)
 
 async def change_interval(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Изменение интервала"""
     query = update.callback_query
     await query.answer()
     
     channel_id = query.data.replace("change_interval_", "")
+    settings = storage.get_auto_settings(channel_id) or {}
+    current_interval = settings.get('interval', 60)
     
-    keyboard = await get_interval_keyboard(channel_id)
+    keyboard = await get_interval_keyboard(channel_id, current_interval)
+    
     await query.edit_message_text(
-        "⏱ *Выберите интервал постинга:*\n\n"
-        "Как часто публиковать посты?",
+        "⏱ *Выберите интервал между постами:*\n\n"
+        "Чем меньше интервал, тем чаще будут публиковаться посты",
         parse_mode='Markdown',
         reply_markup=keyboard
     )
 
 async def set_interval(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Установка интервала"""
     query = update.callback_query
     await query.answer()
     
@@ -629,43 +799,90 @@ async def set_interval(update: Update, context: ContextTypes.DEFAULT_TYPE):
     channel_id = parts[1]
     interval = int(parts[2])
     
-    if channel_id not in storage.auto_posting:
-        storage.auto_posting[channel_id] = {}
+    # Получаем подписку пользователя
+    subscription = storage.get_subscription(query.from_user.id)
+    min_interval = subscription['post_interval']
     
-    storage.auto_posting[channel_id]['interval'] = interval
+    if interval < min_interval:
+        await query.edit_message_text(
+            f"❌ *Интервал {interval} минут недоступен для вашего тарифа!*\n\n"
+            f"Минимальный интервал: {min_interval} минут\n\n"
+            f"Чтобы уменьшить интервал, перейдите на другой тариф",
+            parse_mode='Markdown'
+        )
+        await asyncio.sleep(3)
+        await change_interval(update, context)
+        return
     
-    # Если автопостинг был активен, перезапускаем с новым интервалом
-    if storage.auto_posting[channel_id].get('active'):
-        user_id = query.from_user.id
-        stop_auto_posting(channel_id)
-        start_auto_posting(channel_id, user_id, context.bot)
+    # Обновляем интервал
+    settings = storage.get_auto_settings(channel_id) or {}
+    settings['interval'] = interval
+    settings['user_id'] = query.from_user.id
     
-    interval_min = interval // 60
+    storage.set_auto_settings(channel_id, query.from_user.id, settings)
+    
     await query.edit_message_text(
-        f"✅ *Интервал установлен: {interval_min} минут*\n\n"
-        f"Автопостинг {'продолжает' if storage.auto_posting[channel_id].get('active') else 'будет'} работать с новым интервалом",
+        f"✅ *Интервал установлен!*\n\n"
+        f"⏱ Интервал: {interval} минут\n\n"
+        f"Посты будут публиковаться каждые {interval} минут",
         parse_mode='Markdown'
     )
     
     await asyncio.sleep(2)
     await configure_auto_channel(update, context)
 
-async def show_tariffs(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def toggle_auto_posting(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Включение/выключение автопостинга"""
     query = update.callback_query
     await query.answer()
     
-    user_id = query.from_user.id
-    current_tariff = storage.users[user_id]['tariff']
+    channel_id = query.data.replace("toggle_auto_", "")
+    
+    settings = storage.get_auto_settings(channel_id)
+    
+    if not settings or not settings.get('topic'):
+        await query.edit_message_text(
+            "❌ *Сначала выберите тему для автопостинга!*",
+            parse_mode='Markdown'
+        )
+        await asyncio.sleep(2)
+        await select_topic_for_channel(update, context)
+        return
+    
+    current_status = settings.get('is_active', False)
+    new_status = not current_status
+    
+    settings['is_active'] = new_status
+    if new_status:
+        settings['last_post_time'] = datetime.now() - timedelta(minutes=settings.get('interval', 60))
+    
+    storage.set_auto_settings(channel_id, query.from_user.id, settings)
+    
+    status_text = "включен" if new_status else "выключен"
+    await query.edit_message_text(f"✅ *Автопостинг {status_text}!*", parse_mode='Markdown')
+    
+    await asyncio.sleep(2)
+    await configure_auto_channel(update, context)
+
+async def show_tariffs(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать тарифы"""
+    query = update.callback_query
+    await query.answer()
+    
+    user = query.from_user
+    subscription = storage.get_subscription(user.id)
+    current_tariff = subscription['tariff']
     
     text = "💎 *Доступные тарифы*\n\n"
     
     for tariff_key, tariff_info in TARIFFS.items():
         is_current = "✅ *ТЕКУЩИЙ* " if tariff_key == current_tariff else ""
         text += f"{is_current}{tariff_info['name']}\n"
+        text += f"💰 {tariff_info['price']}\n"
         text += "📋 Возможности:\n"
         for feature in tariff_info['features']:
             text += f"{feature}\n"
-        text += f"⏱ Интервал: каждые {tariff_info['post_interval']} сек.\n\n"
+        text += "\n"
     
     keyboard = []
     for tariff_key in TARIFFS:
@@ -676,43 +893,53 @@ async def show_tariffs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def select_tariff(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Выбор тарифа"""
     query = update.callback_query
     await query.answer()
     
     tariff_key = query.data.replace("select_tariff_", "")
     user_id = query.from_user.id
     
-    storage.users[user_id]['tariff'] = tariff_key
+    storage.update_subscription(user_id, tariff_key)
     
     await query.edit_message_text(
-        f"✅ *Тариф обновлен на {TARIFFS[tariff_key]['name']}*\n\n"
-        f"Новые возможности уже доступны!",
+        f"✅ *Тариф обновлен!*\n\n"
+        f"Ваш новый тариф: {TARIFFS[tariff_key]['name']}\n"
+        f"Минимальный интервал: {TARIFFS[tariff_key]['post_interval']} минут\n\n"
+        f"Теперь вам доступны новые возможности!",
         parse_mode='Markdown'
     )
     
     await asyncio.sleep(2)
-    await show_tariffs(update, context)
+    
+    keyboard = await get_main_keyboard(user_id)
+    await query.message.reply_text("🎯 Главное меню:", reply_markup=keyboard)
 
 async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать профиль"""
     query = update.callback_query
     await query.answer()
     
-    user_id = query.from_user.id
-    user_data = storage.users.get(user_id, {})
-    tariff = user_data.get('tariff', 'free')
+    user = query.from_user
+    user_data = storage.get_user(user.id)
+    subscription = storage.get_subscription(user.id)
+    channels = storage.get_channels(user.id)
+    active_channels = [ch for ch in channels if ch['status'] == 'active']
+    posts = storage.posts.get(user.id, [])
     
-    user_channels = storage.channels.get(user_id, [])
-    user_posts = [p for p in storage.posts if p['user_id'] == user_id]
-    auto_channels = sum(1 for ch_id, settings in storage.auto_posting.items() if settings.get('active') and any(c['id'] == ch_id for c in user_channels))
+    tariff_info = TARIFFS[subscription['tariff']]
     
-    text = (
+    profile_text = (
         f"👤 *Ваш профиль*\n\n"
-        f"📝 Имя: {user_data.get('name', '')}\n"
-        f"💎 Тариф: {TARIFFS[tariff]['name']}\n"
-        f"📢 Каналов: {len(user_channels)}/{TARIFFS[tariff]['max_channels']}\n"
-        f"📝 Постов: {len(user_posts)}\n"
-        f"🤖 Активный автопостинг: {auto_channels} каналов\n\n"
-        f"📅 В системе с: {user_data.get('joined', datetime.now()).strftime('%d.%m.%Y')}"
+        f"📝 Имя: {user.first_name}\n"
+        f"🔗 Username: @{user.username if user.username else 'нет'}\n\n"
+        f"💎 Тариф: {tariff_info['name']}\n"
+        f"📊 Статистика:\n"
+        f"• Каналов: {len(active_channels)}/{subscription['max_channels']}\n"
+        f"• Постов: {len(posts)}\n"
+        f"• Автопостинг: {len(storage.auto_posting)} каналов\n\n"
+        f"⚡ Минимальный интервал: {subscription['post_interval']} минут\n"
+        f"📅 В системе с: {user_data['joined_date'].strftime('%d.%m.%Y')}\n"
     )
     
     keyboard = InlineKeyboardMarkup([
@@ -720,47 +947,72 @@ async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🔙 Назад", callback_data="back_main")]
     ])
     
-    await query.edit_message_text(text, parse_mode='Markdown', reply_markup=keyboard)
+    await query.edit_message_text(profile_text, parse_mode='Markdown', reply_markup=keyboard)
 
 async def show_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать статистику"""
     query = update.callback_query
     await query.answer()
     
-    user_id = query.from_user.id
-    user_posts = [p for p in storage.posts if p['user_id'] == user_id]
+    user = query.from_user
+    posts = storage.posts.get(user.id, [])
+    channels = storage.get_channels(user.id)
     
+    # Статистика по дням
     today = datetime.now().date()
-    posts_today = sum(1 for p in user_posts if p['time'].date() == today)
-    posts_week = sum(1 for p in user_posts if p['time'] > datetime.now() - timedelta(days=7))
-    
-    text = (
-        f"📊 *Ваша статистика*\n\n"
-        f"📝 Всего постов: {len(user_posts)}\n"
-        f"📆 Сегодня: {posts_today}\n"
-        f"📅 За неделю: {posts_week}\n\n"
-    )
+    posts_today = sum(1 for p in posts if p['posted_time'].date() == today)
+    posts_week = sum(1 for p in posts if p['posted_time'] >= datetime.now() - timedelta(days=7))
+    posts_month = sum(1 for p in posts if p['posted_time'] >= datetime.now() - timedelta(days=30))
     
     # Посты по каналам
-    if user_posts:
-        text += "📢 *По каналам:*\n"
-        channels_stats = {}
-        for post in user_posts:
-            channel_id = post['channel_id']
-            channels_stats[channel_id] = channels_stats.get(channel_id, 0) + 1
-        
-        for channel_id, count in list(channels_stats.items())[:5]:
-            # Находим название канала
-            channel_title = channel_id
-            for ch in storage.channels.get(user_id, []):
-                if ch['id'] == channel_id:
-                    channel_title = ch['title']
-                    break
-            text += f"• {channel_title}: {count} постов\n"
+    channels_stats = {}
+    for post in posts:
+        ch_id = post['channel_id']
+        if ch_id not in channels_stats:
+            channels_stats[ch_id] = 0
+        channels_stats[ch_id] += 1
     
-    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data="back_main")]])
-    await query.edit_message_text(text, parse_mode='Markdown', reply_markup=keyboard)
+    stats_text = (
+        f"📊 *Ваша статистика*\n\n"
+        f"📝 *Посты:*\n"
+        f"• Сегодня: {posts_today}\n"
+        f"• За неделю: {posts_week}\n"
+        f"• За месяц: {posts_month}\n"
+        f"• Всего: {len(posts)}\n\n"
+    )
+    
+    if channels_stats:
+        stats_text += "📢 *По каналам:*\n"
+        for ch_id, count in channels_stats.items():
+            # Находим название канала
+            channel_title = ch_id
+            for ch in channels:
+                if ch['channel_id'] == ch_id:
+                    channel_title = ch['channel_title']
+                    break
+            stats_text += f"• {channel_title}: {count} постов\n"
+    
+    # Информация об автопостинге
+    auto_channels = []
+    for ch_id, settings in storage.auto_posting.items():
+        if settings.get('user_id') == user.id and settings.get('is_active'):
+            for ch in channels:
+                if ch['channel_id'] == ch_id:
+                    auto_channels.append(f"• {ch['channel_title']} (каждые {settings.get('interval', 60)} мин)")
+                    break
+    
+    if auto_channels:
+        stats_text += f"\n⚙️ *Активный автопостинг:*\n"
+        stats_text += "\n".join(auto_channels)
+    
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔙 Назад", callback_data="back_main")]
+    ])
+    
+    await query.edit_message_text(stats_text, parse_mode='Markdown', reply_markup=keyboard)
 
 async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Вернуться в главное меню"""
     query = update.callback_query
     await query.answer()
     
@@ -768,6 +1020,7 @@ async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text("🎯 *Главное меню*", parse_mode='Markdown', reply_markup=keyboard)
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Отмена"""
     context.user_data.clear()
     await update.message.reply_text("❌ *Действие отменено*", parse_mode='Markdown')
     
@@ -776,6 +1029,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== ОБРАБОТЧИК CALLBACK ====================
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Главный обработчик callback"""
     query = update.callback_query
     data = query.data
     
@@ -787,15 +1041,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = await get_channels_keyboard(query.from_user.id)
         await query.edit_message_text("📢 *Ваши каналы*", parse_mode='Markdown', reply_markup=keyboard)
     elif data == "add_channel":
-        await add_channel(update, context)
-    elif data == "reposts_menu":
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔄 Репосты (в разработке)", callback_data="back_main")],
-            [InlineKeyboardButton("🔙 Назад", callback_data="back_main")]
-        ])
-        await query.edit_message_text("🔄 *Репосты*\n\nФункция в разработке", parse_mode='Markdown', reply_markup=keyboard)
+        await add_channel_start(update, context)
     elif data == "auto_posting":
-        await auto_posting_menu(update, context)
+        await setup_auto_posting(update, context)
     elif data == "tariffs":
         await show_tariffs(update, context)
     elif data == "profile":
@@ -804,39 +1052,40 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_stats(update, context)
     elif data == "help":
         help_text = (
-            "❓ *Помощь*\n\n"
-            "📋 *Инструкция:*\n\n"
+            "ℹ️ *Помощь*\n\n"
+            "📋 *Как пользоваться:*\n\n"
             "1️⃣ *Добавьте канал*\n"
             "• Добавьте бота в канал как администратора\n"
-            "• В меню 'Мои каналы' ➕ 'Добавить канал'\n"
-            "• Перешлите сообщение из канала боту\n\n"
-            "2️⃣ *Включите автопостинг*\n"
-            "• В меню 'Автопостинг'\n"
-            "• Выберите канал\n"
-            "• Выберите тему\n"
+            "• В меню 'Мои каналы' ➕ 'Добавить канал'\n\n"
+            "2️⃣ *Настройте автопостинг*\n"
+            "• В меню 'Автопостинг' выберите канал\n"
+            "• Выберите тему для контента\n"
             "• Установите интервал (от 1 минуты)\n"
-            "• Включите автопостинг!\n\n"
-            "3️⃣ *Ручная публикация*\n"
+            "• Включите автопостинг\n\n"
+            "3️⃣ *Публикуйте вручную*\n"
             "• 'Написать пост' ➡️ выберите канал\n"
-            "• Отправьте текст/фото/видео\n\n"
-            "💡 *Особенности:*\n"
-            "• Автопостинг работает сразу после включения\n"
-            "• Можно настроить для каждого канала\n"
-            "• 9 тем на выбор\n"
-            "• Интервал от 10 секунд до 1 часа\n\n"
-            "🎁 *Все тарифы бесплатны!*"
+            "• Отправьте текст, фото или видео\n\n"
+            "💡 *Советы:*\n"
+            "• Автопостинг работает автоматически\n"
+            "• Контент генерируется сам\n"
+            "• Можно настроить несколько каналов\n\n"
+            "⚡ *Интервалы:*\n"
+            "• Бесплатный: от 5 минут\n"
+            "• Базовый: от 1 минуты\n"
+            "• PRO: от 30 секунд\n\n"
+            "❓ Вопросы: @support_bot"
         )
         await query.edit_message_text(help_text, parse_mode='Markdown')
-    elif data.startswith("post_channel_"):
+    elif data.startswith("select_channel_"):
         await post_to_channel(update, context)
     elif data.startswith("auto_channel_"):
         await configure_auto_channel(update, context)
-    elif data.startswith("toggle_auto_"):
-        await toggle_auto(update, context)
     elif data.startswith("select_topic_"):
-        await select_topic(update, context)
+        await select_topic_for_channel(update, context)
     elif data.startswith("set_topic_"):
         await set_topic(update, context)
+    elif data.startswith("toggle_auto_"):
+        await toggle_auto_posting(update, context)
     elif data.startswith("change_interval_"):
         await change_interval(update, context)
     elif data.startswith("interval_"):
@@ -845,41 +1094,41 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await select_tariff(update, context)
 
 # ==================== ЗАПУСК ====================
-def main():
-    application = Application.builder().token(BOT_TOKEN).build()
+async def main():
+    """Запуск бота"""
+    global app
+    app = Application.builder().token(BOT_TOKEN).build()
     
-    # Команды
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("cancel", cancel))
+    # Обработчики команд
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("menu", start))
+    app.add_handler(CommandHandler("cancel", cancel))
     
-    # Добавление каналов
-    application.add_handler(MessageHandler(
+    # Обработчики сообщений
+    app.add_handler(MessageHandler(
         filters.TEXT & ~filters.COMMAND,
-        lambda u, c: process_add_channel(u, c) if c.user_data.get('adding_channel')
-        else (handle_post(u, c) if c.user_data.get('awaiting_post')
+        lambda u, c: process_add_channel(u, c) if c.user_data.get('adding_channel') 
+        else (handle_post_content(u, c) if c.user_data.get('awaiting_post')
         else None)
     ))
     
-    # Медиа для постов
-    application.add_handler(MessageHandler(
-        filters.PHOTO | filters.VIDEO,
-        handle_post
+    app.add_handler(MessageHandler(
+        (filters.PHOTO | filters.VIDEO) & ~filters.COMMAND,
+        handle_post_content
     ))
     
-    # Пересланные сообщения
-    application.add_handler(MessageHandler(
-        filters.FORWARDED,
-        process_add_channel
-    ))
+    # Callback обработчики
+    app.add_handler(CallbackQueryHandler(handle_callback))
     
-    # Callback
-    application.add_handler(CallbackQueryHandler(handle_callback))
+    # Запускаем фоновый процесс автопостинга
+    asyncio.create_task(auto_posting_worker())
     
     logger.info("🚀 Бот запущен!")
-    logger.info("✅ Автопостинг работает с интервалом от 1 минуты")
-    logger.info("💾 Данные хранятся в памяти")
+    logger.info("⚡ Автопостинг активен")
+    logger.info("⏱ Минимальный интервал: 30 секунд")
+    logger.info("💎 Все тарифы бесплатны!")
     
-    application.run_polling()
+    await app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
-    main()
+    asyncio.run(main())
