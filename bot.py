@@ -6,21 +6,19 @@ import uuid
 import aiohttp
 import base64
 import random
-from datetime import datetime, timedelta
-from typing import Dict, Optional, List, Tuple
+from datetime import datetime
+from typing import Dict, Optional, List
 from dataclasses import dataclass, field
 from enum import Enum
-from pathlib import Path
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatMember
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
     MessageHandler,
     CallbackQueryHandler,
     ContextTypes,
-    filters,
-    JobQueue
+    filters
 )
 
 # ==================== НАСТРОЙКА ЛОГИРОВАНИЯ ====================
@@ -38,322 +36,289 @@ CLIENT_ID = "019d2a4f-ea83-7eb6-81ae-524740348fc8"
 CLIENT_SECRET = "a7652848-5a89-418e-9185-73520feeaf74"
 API_SCOPE = "GIGACHAT_API_PERS"
 
-# ==================== ТАРИФЫ ====================
-class TariffType(Enum):
-    FREE = "free"
-    BASIC = "basic"
-    PRO = "pro"
-    PREMIUM = "premium"
-
+# ==================== ВСЕ ТАРИФЫ БЕСПЛАТНЫЕ ====================
 TARIFFS = {
     "free": {
-        "name": "📢 Бесплатный",
-        "price": 0,
+        "name": "📢 Базовый",
         "channels": 1,
-        "posts_per_day": 5,
-        "can_repost": False,
-        "can_schedule": False,
-        "ai_quality": "standard",
-        "has_images": True,
-        "image_limit": 3
-    },
-    "basic": {
-        "name": "⭐ Базовый",
-        "price": 299,
-        "channels": 3,
-        "posts_per_day": 15,
+        "posts_per_day": 10,
         "can_repost": True,
         "can_schedule": True,
-        "ai_quality": "enhanced",
-        "has_images": True,
-        "image_limit": 5
+        "auto_posting": True
+    },
+    "standard": {
+        "name": "⭐ Стандартный",
+        "channels": 5,
+        "posts_per_day": 30,
+        "can_repost": True,
+        "can_schedule": True,
+        "auto_posting": True
     },
     "pro": {
         "name": "💎 Профессиональный",
-        "price": 699,
-        "channels": 10,
-        "posts_per_day": 50,
+        "channels": 15,
+        "posts_per_day": 100,
         "can_repost": True,
         "can_schedule": True,
-        "ai_quality": "premium",
-        "has_images": True,
-        "image_limit": 10
+        "auto_posting": True
     },
-    "premium": {
-        "name": "👑 Премиум",
-        "price": 1499,
+    "unlimited": {
+        "name": "👑 Unlimited",
         "channels": 999,
-        "posts_per_day": 200,
+        "posts_per_day": 500,
         "can_repost": True,
         "can_schedule": True,
-        "ai_quality": "ultra",
-        "has_images": True,
-        "image_limit": 20
+        "auto_posting": True
     }
 }
 
-# ==================== ТЕМЫ ДЛЯ ПОСТИНГА (20 ТЕМ) ====================
+# ==================== 20 ТЕМ ДЛЯ ПОСТИНГА ====================
 POSTING_THEMES = {
     "ai_news": {
-        "name": "🤖 Новости AI",
+        "name": "ИИ и Нейросети",
         "emoji": "🤖",
-        "description": "Новости искусственного интеллекта",
-        "prompt": "Ты журналист, пишущий об AI. Создай интересный пост о последних новостях в мире искусственного интеллекта."
+        "color": "🔵",
+        "hashtags": ["#ИИ", "#Нейросети", "#AI", "#ИскусственныйИнтеллект"],
+        "prompt": "Ты журналист, пишущий об ИИ. Создай увлекательный пост о нейросетях и искусственном интеллекте."
     },
     "crypto": {
-        "name": "🪙 Криптовалюты",
+        "name": "Криптовалюты",
         "emoji": "🪙",
-        "description": "Новости криптовалют",
-        "prompt": "Ты крипто-аналитик. Создай пост о криптовалютах, блокчейне, DeFi."
+        "color": "🟡",
+        "hashtags": ["#Криптовалюта", "#Биткоин", "#Blockchain", "#DeFi"],
+        "prompt": "Ты криптоаналитик. Создай пост о мире криптовалют и блокчейна."
     },
     "nft": {
-        "name": "🎨 NFT",
+        "name": "NFT и Цифровое Искусство",
         "emoji": "🎨",
-        "description": "Новости NFT и digital art",
-        "prompt": "Ты эксперт по NFT. Создай пост о NFT коллекциях, digital art, метавселенных."
+        "color": "🟣",
+        "hashtags": ["#NFT", "#ЦифровоеИскусство", "#Метавселенная", "#Web3"],
+        "prompt": "Ты эксперт по NFT. Создай пост о цифровом искусстве и NFT коллекциях."
     },
     "telegram": {
-        "name": "📱 Telegram",
+        "name": "Telegram",
         "emoji": "📱",
-        "description": "Новости Telegram",
-        "prompt": "Ты блогер о Telegram. Создай пост о новых функциях Telegram, ботах, каналах."
+        "color": "🔵",
+        "hashtags": ["#Telegram", "#Мессенджеры", "#Криптобезопасность"],
+        "prompt": "Ты блогер о Telegram. Создай пост о новых функциях и возможностях Telegram."
     },
     "business": {
-        "name": "💼 Бизнес",
+        "name": "Бизнес",
         "emoji": "💼",
-        "description": "Бизнес новости",
-        "prompt": "Ты бизнес-журналист. Создай пост о бизнесе, стартапах, инвестициях."
+        "color": "🟢",
+        "hashtags": ["#Бизнес", "#Предпринимательство", "#Успех", "#БизнесИдеи"],
+        "prompt": "Ты бизнес-журналист. Создай полезный пост о бизнесе и предпринимательстве."
     },
     "tech": {
-        "name": "📡 Технологии",
+        "name": "Технологии",
         "emoji": "📡",
-        "description": "Технологические новости",
-        "prompt": "Ты техноблогер. Создай пост о новых технологиях, гаджетах, изобретениях."
+        "color": "🔵",
+        "hashtags": ["#Технологии", "#Гаджеты", "#Инновации", "#IT"],
+        "prompt": "Ты техноблогер. Создай пост о новейших технологиях и гаджетах."
     },
     "science": {
-        "name": "🔬 Наука",
+        "name": "Наука",
         "emoji": "🔬",
-        "description": "Научные открытия",
+        "color": "🧪",
+        "hashtags": ["#Наука", "#Открытия", "#Исследования", "#Физика"],
         "prompt": "Ты научный журналист. Создай пост о научных открытиях и исследованиях."
     },
     "health": {
-        "name": "⚕️ Здоровье",
+        "name": "Здоровье",
         "emoji": "⚕️",
-        "description": "Здоровье и медицина",
-        "prompt": "Ты медицинский блогер. Создай полезный пост о здоровье."
+        "color": "❤️",
+        "hashtags": ["#Здоровье", "#Медицина", "#ЗОЖ", "#Спорт"],
+        "prompt": "Ты медицинский блогер. Создай полезный пост о здоровье и ЗОЖ."
     },
     "psychology": {
-        "name": "🧠 Психология",
+        "name": "Психология",
         "emoji": "🧠",
-        "description": "Психология и саморазвитие",
-        "prompt": "Ты психолог. Создай полезный пост по психологии и саморазвитию."
+        "color": "💜",
+        "hashtags": ["#Психология", "#Саморазвитие", "#Мотивация", "#Осознанность"],
+        "prompt": "Ты психолог. Создай интересный пост о психологии и личностном росте."
     },
     "marketing": {
-        "name": "📈 Маркетинг",
+        "name": "Маркетинг",
         "emoji": "📈",
-        "description": "Маркетинг и SMM",
-        "prompt": "Ты маркетолог. Создай пост о маркетинге, SMM, рекламе."
+        "color": "🟠",
+        "hashtags": ["#Маркетинг", "#SMM", "#Реклама", "#Брендинг"],
+        "prompt": "Ты маркетолог. Создай пост о маркетинге и digital-продвижении."
     },
     "design": {
-        "name": "🎨 Дизайн",
+        "name": "Дизайн",
         "emoji": "🎨",
-        "description": "Дизайн и креатив",
-        "prompt": "Ты дизайнер. Создай вдохновляющий пост о дизайне."
+        "color": "💗",
+        "hashtags": ["#Дизайн", "#ГрафическийДизайн", "#UIUX", "#Креатив"],
+        "prompt": "Ты дизайнер. Создай вдохновляющий пост о дизайне и творчестве."
     },
     "programming": {
-        "name": "💻 Программирование",
+        "name": "Программирование",
         "emoji": "💻",
-        "description": "IT и разработка",
-        "prompt": "Ты разработчик. Создай полезный пост о программировании."
+        "color": "💙",
+        "hashtags": ["#Программирование", "#Код", "#Разработка", "#ИТ"],
+        "prompt": "Ты разработчик. Создай полезный пост о программировании и IT."
     },
     "gaming": {
-        "name": "🎮 Игры",
+        "name": "Игры",
         "emoji": "🎮",
-        "description": "Игровые новости",
-        "prompt": "Ты игровой журналист. Создай пост об играх и гейминге."
+        "color": "🟢",
+        "hashtags": ["#Игры", "#Гейминг", "#Видеоигры", "#Киберспорт"],
+        "prompt": "Ты игровой журналист. Создай пост о новинках игровой индустрии."
     },
     "movies": {
-        "name": "🎬 Кино",
+        "name": "Кино",
         "emoji": "🎬",
-        "description": "Новости кино",
-        "prompt": "Ты кинокритик. Создай пост о новинках кино и сериалов."
+        "color": "🔴",
+        "hashtags": ["#Кино", "#Фильмы", "#Сериалы", "#Кинопремьеры"],
+        "prompt": "Ты кинокритик. Создай пост о новых фильмах и сериалах."
     },
     "music": {
-        "name": "🎵 Музыка",
+        "name": "Музыка",
         "emoji": "🎵",
-        "description": "Музыкальные новости",
-        "prompt": "Ты музыкальный обозреватель. Создай пост о музыке."
+        "color": "🎶",
+        "hashtags": ["#Музыка", "#НовинкиМузыки", "#Хиты", "#Концерты"],
+        "prompt": "Ты музыкальный обозреватель. Создай пост о музыкальных новинках."
     },
     "sport": {
-        "name": "⚽ Спорт",
+        "name": "Спорт",
         "emoji": "⚽",
-        "description": "Спортивные новости",
-        "prompt": "Ты спортивный журналист. Создай пост о спорте."
+        "color": "🏆",
+        "hashtags": ["#Спорт", "#Футбол", "#Тренировки", "#ЗОЖ"],
+        "prompt": "Ты спортивный журналист. Создай пост о спорте и активном образе жизни."
     },
     "travel": {
-        "name": "✈️ Путешествия",
+        "name": "Путешествия",
         "emoji": "✈️",
-        "description": "Путешествия и туризм",
-        "prompt": "Ты тревел-блогер. Создай пост о путешествиях."
+        "color": "🌍",
+        "hashtags": ["#Путешествия", "#Туризм", "#Мир", "#Приключения"],
+        "prompt": "Ты тревел-блогер. Создай пост о путешествиях и лучших местах для отдыха."
     },
     "food": {
-        "name": "🍳 Кулинария",
+        "name": "Кулинария",
         "emoji": "🍳",
-        "description": "Кулинария и рецепты",
-        "prompt": "Ты кулинарный блогер. Создай пост о еде и рецептах."
+        "color": "🍜",
+        "hashtags": ["#Кулинария", "#Рецепты", "#Еда", "#ГотовимДома"],
+        "prompt": "Ты кулинарный блогер. Создай пост с интересным рецептом."
     },
     "education": {
-        "name": "📚 Образование",
+        "name": "Образование",
         "emoji": "📚",
-        "description": "Образование и обучение",
-        "prompt": "Ты педагог. Создай полезный пост об образовании."
+        "color": "🎓",
+        "hashtags": ["#Образование", "#Учеба", "#Знания", "#Саморазвитие"],
+        "prompt": "Ты педагог. Создай полезный пост об образовании и обучении."
     },
     "motivation": {
-        "name": "💪 Мотивация",
+        "name": "Мотивация",
         "emoji": "💪",
-        "description": "Мотивация и успех",
-        "prompt": "Ты мотивационный спикер. Создай вдохновляющий пост."
+        "color": "✨",
+        "hashtags": ["#Мотивация", "#Успех", "#Цитаты", "#Вдохновение"],
+        "prompt": "Ты мотивационный спикер. Создай вдохновляющий пост для достижения целей."
     }
 }
 
 # ==================== РАЗМЕРЫ ПОСТОВ ====================
-class PostSize(Enum):
-    MINI = "mini"
-    SHORT = "short"
-    MEDIUM = "medium"
-    LONG = "long"
-    EXTRA = "extra"
-
 POST_SIZES = {
-    "mini": {"name": "🔹 Мини", "min_chars": 100, "max_chars": 300, "emoji": "🔹"},
-    "short": {"name": "🔸 Короткий", "min_chars": 301, "max_chars": 600, "emoji": "🔸"},
-    "medium": {"name": "🔹 Средний", "min_chars": 601, "max_chars": 1000, "emoji": "🔹"},
-    "long": {"name": "📄 Длинный", "min_chars": 1001, "max_chars": 1500, "emoji": "📄"},
-    "extra": {"name": "📚 Макси", "min_chars": 1501, "max_chars": 2000, "emoji": "📚"}
+    "mini": {"name": "Мини", "emoji": "🔹", "min": 100, "max": 300},
+    "short": {"name": "Короткий", "emoji": "🔸", "min": 301, "max": 600},
+    "medium": {"name": "Средний", "emoji": "📝", "min": 601, "max": 1000},
+    "long": {"name": "Длинный", "emoji": "📄", "min": 1001, "max": 1500},
+    "extra": {"name": "Максимальный", "emoji": "📚", "min": 1501, "max": 2000}
 }
 
-# ==================== СТРУКТУРЫ ДАННЫХ ====================
-@dataclass
-class Post:
-    id: str
-    channel_id: str
-    theme: str
-    content: str
-    image_url: Optional[str]
-    posted_at: float
-    size: str
-    views: int = 0
+# ==================== ВРЕМЕННЫЕ ИНТЕРВАЛЫ ====================
+AUTO_INTERVALS = {
+    30: "⏰ Каждые 30 минут",
+    60: "🕐 Каждый час", 
+    120: "🕑 Каждые 2 часа",
+    240: "🕓 Каждые 4 часа",
+    360: "🕕 Каждые 6 часов",
+    720: "🕛 Каждые 12 часов",
+    1440: "📅 Раз в день"
+}
 
+# ==================== ХРАНИЛИЩЕ ДАННЫХ ====================
 @dataclass
-class SourceChannel:
-    channel_id: str
-    channel_name: str
-    theme: str
-    is_active: bool = True
-
-@dataclass
-class UserSubscription:
+class UserData:
     user_id: int
-    tariff: str
-    subscribed_at: float
-    channels: List[str] = field(default_factory=list)
-    posts_today: int = 0
+    username: str
+    first_name: str
+    tariff: str = "free"
+    channels: List[dict] = field(default_factory=list)  # [{"id": "123", "name": "Канал"}]
+    daily_posts: int = 0
     last_reset: float = field(default_factory=time.time)
-    themes: List[str] = field(default_factory=list)
-    post_schedule: Dict[str, str] = field(default_factory=dict)  # theme -> hour
+    auto_configs: Dict[str, dict] = field(default_factory=dict)  # channel_id -> {"theme": "", "size": "", "interval": 60, "active": True}
+    selected_theme: str = "ai_news"
+    selected_size: str = "medium"
+    
+    def reset_daily(self):
+        now = time.time()
+        if now - self.last_reset >= 86400:
+            self.daily_posts = 0
+            self.last_reset = now
     
     def can_post(self) -> bool:
-        today = time.time()
-        if today - self.last_reset > 86400:
-            self.posts_today = 0
-            self.last_reset = today
+        self.reset_daily()
         tariff = TARIFFS.get(self.tariff, TARIFFS["free"])
-        return self.posts_today < tariff["posts_per_day"]
+        return self.daily_posts < tariff["posts_per_day"]
     
     def add_post(self):
-        self.posts_today += 1
+        self.daily_posts += 1
 
-@dataclass    
-class AutoPostConfig:
-    channel_id: str
-    theme: str
-    size: str
-    interval_minutes: int
-    is_active: bool = True
-    last_post: float = 0
-
-# ==================== ОСНОВНОЕ ХРАНИЛИЩЕ ====================
-class PostingBot:
+class BotDatabase:
     def __init__(self):
-        self.user_subscriptions: Dict[int, UserSubscription] = {}
-        self.auto_configs: Dict[str, AutoPostConfig] = {}
-        self.source_channels: Dict[str, SourceChannel] = {}
+        self.users: Dict[int, UserData] = {}
         self.api_token = None
         self.api_token_expiry = 0
-        self.post_history: List[Post] = []
-        self.pending_approvals: Dict[str, dict] = {}
-        self.channel_admins: Dict[str, List[int]] = {}
+        self.post_history: List[dict] = []
     
-    def load_data(self):
-        """Загрузка данных из файлов"""
+    def load(self):
         try:
-            with open("subscriptions.json", "r") as f:
+            with open("users_data.json", "r", encoding="utf-8") as f:
                 data = json.load(f)
-                for user_id, sub_data in data.items():
-                    self.user_subscriptions[int(user_id)] = UserSubscription(**sub_data)
-        except:
-            pass
-        
-        try:
-            with open("auto_configs.json", "r") as f:
-                data = json.load(f)
-                for channel_id, config_data in data.items():
-                    self.auto_configs[channel_id] = AutoPostConfig(**config_data)
-        except:
-            pass
-        
-        try:
-            with open("source_channels.json", "r") as f:
-                data = json.load(f)
-                for channel_id, source_data in data.items():
-                    self.source_channels[channel_id] = SourceChannel(**source_data)
+                for uid, udata in data.items():
+                    user = UserData(
+                        user_id=udata["user_id"],
+                        username=udata.get("username", ""),
+                        first_name=udata.get("first_name", ""),
+                        tariff=udata.get("tariff", "free"),
+                        channels=udata.get("channels", []),
+                        daily_posts=udata.get("daily_posts", 0),
+                        last_reset=udata.get("last_reset", time.time()),
+                        auto_configs=udata.get("auto_configs", {}),
+                        selected_theme=udata.get("selected_theme", "ai_news"),
+                        selected_size=udata.get("selected_size", "medium")
+                    )
+                    self.users[int(uid)] = user
         except:
             pass
     
-    def save_data(self):
-        """Сохранение данных"""
-        subs = {uid: {"user_id": sub.user_id, "tariff": sub.tariff, 
-                      "subscribed_at": sub.subscribed_at, "channels": sub.channels,
-                      "posts_today": sub.posts_today, "last_reset": sub.last_reset,
-                      "themes": sub.themes, "post_schedule": sub.post_schedule} 
-                for uid, sub in self.user_subscriptions.items()}
-        with open("subscriptions.json", "w") as f:
-            json.dump(subs, f, indent=2)
-        
-        configs = {cid: {"channel_id": cfg.channel_id, "theme": cfg.theme,
-                         "size": cfg.size, "interval_minutes": cfg.interval_minutes,
-                         "is_active": cfg.is_active, "last_post": cfg.last_post}
-                   for cid, cfg in self.auto_configs.items()}
-        with open("auto_configs.json", "w") as f:
-            json.dump(configs, f, indent=2)
-        
-        sources = {cid: {"channel_id": src.channel_id, "channel_name": src.channel_name,
-                         "theme": src.theme, "is_active": src.is_active}
-                   for cid, src in self.source_channels.items()}
-        with open("source_channels.json", "w") as f:
-            json.dump(sources, f, indent=2)
+    def save(self):
+        data = {}
+        for uid, user in self.users.items():
+            data[uid] = {
+                "user_id": user.user_id,
+                "username": user.username,
+                "first_name": user.first_name,
+                "tariff": user.tariff,
+                "channels": user.channels,
+                "daily_posts": user.daily_posts,
+                "last_reset": user.last_reset,
+                "auto_configs": user.auto_configs,
+                "selected_theme": user.selected_theme,
+                "selected_size": user.selected_size
+            }
+        with open("users_data.json", "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
     
-    def get_user_subscription(self, user_id: int) -> UserSubscription:
-        if user_id not in self.user_subscriptions:
-            self.user_subscriptions[user_id] = UserSubscription(
+    def get_user(self, user_id: int, username: str = "", first_name: str = "") -> UserData:
+        if user_id not in self.users:
+            self.users[user_id] = UserData(
                 user_id=user_id,
-                tariff="free",
-                subscribed_at=time.time(),
-                channels=[],
-                themes=[]
+                username=username,
+                first_name=first_name
             )
-            self.save_data()
-        return self.user_subscriptions[user_id]
+            self.save()
+        return self.users[user_id]
     
     async def get_api_token(self) -> str:
         if self.api_token and time.time() < self.api_token_expiry:
@@ -384,26 +349,27 @@ class PostingBot:
             logger.error(f"Ошибка получения токена: {e}")
         return None
     
-    async def generate_post_content(self, theme: str, size: str) -> str:
+    async def generate_post(self, theme_key: str, size_key: str) -> str:
         """Генерация поста через GigaChat"""
         token = await self.get_api_token()
+        theme = POSTING_THEMES.get(theme_key, POSTING_THEMES["ai_news"])
+        size = POST_SIZES.get(size_key, POST_SIZES["medium"])
+        
         if not token:
-            return "❌ Ошибка генерации. Попробуйте позже."
+            return self.get_fallback_post(theme_key, size_key)
         
-        theme_config = POSTING_THEMES.get(theme, POSTING_THEMES["ai_news"])
-        size_config = POST_SIZES.get(size, POST_SIZES["medium"])
-        
-        prompt = f"""{theme_config['prompt']}
+        prompt = f"""Напиши интересный пост для Telegram канала на тему "{theme['name']}".
 
-Требования к посту:
-- Длина: {size_config['min_chars']}-{size_config['max_chars']} символов
+Требования:
+- Длина: {size['min']}-{size['max']} символов
 - Используй эмодзи для украшения
-- Добавь хэштеги в конце (3-5 штук)
-- Пиши на русском языке
-- Пост должен быть интересным и полезным
-- Добавь вопрос к подписчикам в конце
+- Пост должен быть полезным и увлекательным
+- В конце добавь вопрос к подписчикам
+- Затем добавь хэштеги: {' '.join(theme['hashtags'])}
 
-Тема: {theme_config['name']}"""
+{theme['prompt']}
+
+Пост должен выглядеть красиво и профессионально."""
         
         try:
             async with aiohttp.ClientSession() as session:
@@ -420,102 +386,109 @@ class PostingBot:
                         "max_tokens": 2500
                     },
                     ssl=False,
-                    timeout=aiohttp.ClientTimeout(total=45)
+                    timeout=aiohttp.ClientTimeout(total=60)
                 ) as response:
                     if response.status == 200:
                         data = await response.json()
-                        if "choices" in data:
+                        if "choices" in data and data["choices"]:
                             content = data["choices"][0]["message"]["content"]
-                            if len(content) > size_config["max_chars"]:
-                                content = content[:size_config["max_chars"]]
+                            if len(content) > size["max"]:
+                                content = content[:size["max"]]
                             return content
         except Exception as e:
             logger.error(f"Ошибка генерации: {e}")
         
-        return self._get_fallback_post(theme, size)
+        return self.get_fallback_post(theme_key, size_key)
     
-    def _get_fallback_post(self, theme: str, size: str) -> str:
+    def get_fallback_post(self, theme_key: str, size_key: str) -> str:
         """Запасной пост при ошибке API"""
-        fallbacks = {
-            "ai_news": "🤖 Искусственный интеллект продолжает удивлять! Какие новые возможности AI вас впечатлили?",
-            "crypto": "🪙 Биткоин показывает новые тренды! Следите за рынком криптовалют!",
-            "nft": "🎨 NFT открывают новые горизонты для цифрового искусства! У вас есть NFT?",
-            "telegram": "📱 Telegram выпустил обновление! Какие функции вы ждете?",
-            "business": "💼 Успешный бизнес начинается с идеи! Какую бизнес-идею вы хотели бы реализовать?",
+        theme = POSTING_THEMES.get(theme_key, POSTING_THEMES["ai_news"])
+        size = POST_SIZES.get(size_key, POST_SIZES["medium"])
+        
+        texts = {
+            "ai_news": f"{theme['emoji']} *Искусственный интеллект меняет мир!*\n\nНейросети становятся умнее с каждым днём. Какое применение ИИ вас больше всего впечатляет?\n\n{' '.join(theme['hashtags'])}",
+            "crypto": f"{theme['emoji']} *Крипторынок оживает!*\n\nБиткоин снова в центре внимания. Следите за трендами и не упустите возможность!\n\n{' '.join(theme['hashtags'])}",
+            "nft": f"{theme['emoji']} *NFT - будущее цифрового искусства?*\n\nУникальные токены открывают новые горизонты для художников и коллекционеров.\n\n{' '.join(theme['hashtags'])}",
+            "telegram": f"{theme['emoji']} *Telegram — лучший мессенджер!*\n\nНовые функции, боты и каналы делают его незаменимым.\n\n{' '.join(theme['hashtags'])}"
         }
-        return fallbacks.get(theme, "✨ Новый пост! Делитесь мыслями в комментариях! ✨")
+        
+        return texts.get(theme_key, f"{theme['emoji']} *{theme['name']}*\n\nИнтересные новости и факты ждут вас!\n\n{' '.join(theme['hashtags'])}")
     
-    async def generate_post_image(self, theme: str) -> Optional[str]:
-        """Генерация URL изображения для поста (эмуляция)"""
-        # В реальном проекте здесь был бы API генерации изображений
-        # Пока возвращаем None, так как GigaChat не генерирует картинки
-        return None
+    def format_post(self, content: str, theme_key: str) -> str:
+        """Красивое форматирование поста"""
+        theme = POSTING_THEMES.get(theme_key, POSTING_THEMES["ai_news"])
+        
+        separator = "─" * 30
+        header = f"{theme['color']} *{theme['name']}* {theme['emoji']}\n{separator}\n"
+        
+        if not content.startswith(header):
+            content = header + content
+        
+        if not content.endswith("\n\n✨ *Подписывайтесь на наш канал!* ✨"):
+            content += f"\n\n{separator}\n✨ *Подписывайтесь на наш канал!* ✨"
+        
+        return content
     
     async def post_to_channel(self, context: ContextTypes.DEFAULT_TYPE, channel_id: str, 
-                              theme: str, size: str, is_auto: bool = False):
+                              theme_key: str, size_key: str) -> bool:
         """Публикация поста в канал"""
-        content = await self.generate_post_content(theme, size)
-        image_url = await self.generate_post_image(theme)
+        user_id = None
+        for uid, user in self.users.items():
+            for ch in user.channels:
+                if ch.get("id") == channel_id:
+                    user_id = uid
+                    break
+        
+        if not user_id:
+            return False
+        
+        user = self.get_user(user_id)
+        
+        if not user.can_post():
+            return False
+        
+        content = await self.generate_post(theme_key, size_key)
+        formatted_content = self.format_post(content, theme_key)
         
         try:
-            if image_url:
-                await context.bot.send_photo(
-                    chat_id=channel_id,
-                    photo=image_url,
-                    caption=content,
-                    parse_mode='HTML'
-                )
-            else:
-                await context.bot.send_message(
-                    chat_id=channel_id,
-                    text=content,
-                    parse_mode='HTML'
-                )
-            
-            post = Post(
-                id=str(uuid.uuid4()),
-                channel_id=channel_id,
-                theme=theme,
-                content=content[:200],
-                image_url=image_url,
-                posted_at=time.time(),
-                size=size
+            await context.bot.send_message(
+                chat_id=channel_id,
+                text=formatted_content,
+                parse_mode='Markdown',
+                disable_web_page_preview=False
             )
-            self.post_history.append(post)
             
-            if not is_auto:
-                for user_id, sub in self.user_subscriptions.items():
-                    if channel_id in sub.channels:
-                        sub.add_post()
+            user.add_post()
+            self.post_history.append({
+                "channel": channel_id,
+                "theme": theme_key,
+                "time": time.time(),
+                "size": size_key
+            })
+            self.save()
             
+            logger.info(f"✅ Пост опубликован в {channel_id} на тему {theme_key}")
             return True
+            
         except Exception as e:
-            logger.error(f"Ошибка публикации в {channel_id}: {e}")
+            logger.error(f"Ошибка публикации: {e}")
             return False
 
-bot = PostingBot()
+db = BotDatabase()
 
 # ==================== КЛАВИАТУРЫ ====================
-async def get_main_keyboard(user_id: int):
-    sub = bot.get_user_subscription(user_id)
-    tariff = TARIFFS[sub.tariff]
-    
+async def get_main_keyboard():
     keyboard = [
-        [InlineKeyboardButton("➕ Добавить канал", callback_data="add_channel")],
-        [InlineKeyboardButton("🤖 Автопостинг", callback_data="auto_posting")],
-        [InlineKeyboardButton("🔄 Перепост из каналов", callback_data="repost_menu")],
+        [InlineKeyboardButton("📢 Добавить канал", callback_data="add_channel")],
         [InlineKeyboardButton("🎨 Выбрать тему", callback_data="select_theme")],
-        [InlineKeyboardButton("📏 Выбрать размер поста", callback_data="select_size")],
+        [InlineKeyboardButton("📏 Выбрать размер", callback_data="select_size")],
+        [InlineKeyboardButton("🤖 Автопостинг", callback_data="auto_posting")],
+        [InlineKeyboardButton("📤 Опубликовать пост", callback_data="post_now")],
+        [InlineKeyboardButton("📋 Мои каналы", callback_data="my_channels")],
         [InlineKeyboardButton("💎 Тарифы", callback_data="tariffs")],
         [InlineKeyboardButton("📊 Статистика", callback_data="stats")],
-        [InlineKeyboardButton("🎲 Случайный пост", callback_data="random_post")],
-        [InlineKeyboardButton("📋 Список каналов", callback_data="my_channels")],
         [InlineKeyboardButton("🆘 Помощь", callback_data="help")]
     ]
-    
-    if sub.tariff != "free":
-        keyboard.insert(2, [InlineKeyboardButton("⏰ Расписание постов", callback_data="schedule")])
-    
     return InlineKeyboardMarkup(keyboard)
 
 async def get_themes_keyboard(page: int = 0):
@@ -529,19 +502,19 @@ async def get_themes_keyboard(page: int = 0):
         keyboard.append([
             InlineKeyboardButton(
                 f"{theme['emoji']} {theme['name']}",
-                callback_data=f"theme_{theme_key}"
+                callback_data=f"theme_sel_{theme_key}"
             )
         ])
     
-    nav_buttons = []
+    nav = []
     if page > 0:
-        nav_buttons.append(InlineKeyboardButton("◀️ Назад", callback_data=f"themes_page_{page-1}"))
+        nav.append(InlineKeyboardButton("◀️ Назад", callback_data=f"themes_page_{page-1}"))
     if end < len(themes_list):
-        nav_buttons.append(InlineKeyboardButton("Вперед ▶️", callback_data=f"themes_page_{page+1}"))
-    if nav_buttons:
-        keyboard.append(nav_buttons)
+        nav.append(InlineKeyboardButton("Вперед ▶️", callback_data=f"themes_page_{page+1}"))
+    if nav:
+        keyboard.append(nav)
     
-    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_main")])
+    keyboard.append([InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu")])
     return InlineKeyboardMarkup(keyboard)
 
 async def get_sizes_keyboard():
@@ -549,296 +522,426 @@ async def get_sizes_keyboard():
     for size_key, size in POST_SIZES.items():
         keyboard.append([
             InlineKeyboardButton(
-                f"{size['emoji']} {size['name']} ({size['min_chars']}-{size['max_chars']} симв.)",
-                callback_data=f"size_{size_key}"
+                f"{size['emoji']} {size['name']} ({size['min']}-{size['max']} симв.)",
+                callback_data=f"size_sel_{size_key}"
             )
         ])
-    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_main")])
+    keyboard.append([InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu")])
+    return InlineKeyboardMarkup(keyboard)
+
+async def get_channels_keyboard(user: UserData):
+    keyboard = []
+    for ch in user.channels:
+        keyboard.append([
+            InlineKeyboardButton(f"📢 {ch['name'][:30]}", callback_data=f"channel_{ch['id']}")
+        ])
+    keyboard.append([InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu")])
+    return InlineKeyboardMarkup(keyboard)
+
+async def get_auto_settings_keyboard(channel_id: str, config: dict):
+    theme = POSTING_THEMES.get(config.get('theme', 'ai_news'), POSTING_THEMES['ai_news'])
+    size = POST_SIZES.get(config.get('size', 'medium'), POST_SIZES['medium'])
+    interval_text = AUTO_INTERVALS.get(config.get('interval', 60), f"⏰ Каждые {config.get('interval', 60)} мин")
+    status = "✅ Вкл" if config.get('active', True) else "⏸ Выкл"
+    
+    keyboard = [
+        [InlineKeyboardButton(f"🎨 Тема: {theme['emoji']} {theme['name']}", callback_data=f"auto_theme_{channel_id}")],
+        [InlineKeyboardButton(f"📏 Размер: {size['emoji']} {size['name']}", callback_data=f"auto_size_{channel_id}")],
+        [InlineKeyboardButton(f"⏱ Интервал: {interval_text}", callback_data=f"auto_interval_{channel_id}")],
+        [InlineKeyboardButton(f"🔄 Статус: {status}", callback_data=f"auto_toggle_{channel_id}")],
+        [InlineKeyboardButton("💾 Сохранить и запустить", callback_data=f"auto_save_{channel_id}")],
+        [InlineKeyboardButton("🔙 Назад", callback_data="auto_posting")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+async def get_interval_keyboard(channel_id: str):
+    keyboard = []
+    for minutes, name in AUTO_INTERVALS.items():
+        keyboard.append([InlineKeyboardButton(name, callback_data=f"interval_set_{channel_id}_{minutes}")])
+    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data=f"edit_auto_{channel_id}")])
     return InlineKeyboardMarkup(keyboard)
 
 async def get_tariffs_keyboard():
     keyboard = []
     for tariff_key, tariff in TARIFFS.items():
-        price_text = f"{tariff['price']}₽" if tariff['price'] > 0 else "Бесплатно"
         keyboard.append([
             InlineKeyboardButton(
-                f"{tariff['name']} - {price_text}",
-                callback_data=f"tariff_{tariff_key}"
+                f"{tariff['name']} — {tariff['channels']} каналов, {tariff['posts_per_day']} постов/день",
+                callback_data=f"tariff_select_{tariff_key}"
             )
         ])
-    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_main")])
+    keyboard.append([InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu")])
     return InlineKeyboardMarkup(keyboard)
 
 # ==================== ОБРАБОТЧИКИ ====================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    bot.load_data()
+    user_data = db.get_user(user.id, user.username or "", user.first_name or "")
     
-    welcome = f"""
-🚀 *Добро пожаловать, {user.first_name}!*
+    welcome_text = f"""
+✨ *Добро пожаловать, {user.first_name}!* ✨
 
-🤖 *Бот для автопостинга с AI*
+🤖 *Я бот для автоматического постинга с ИИ*
 
-📝 *Возможности:*
-✅ Генерация постов через ИИ (GigaChat)
-✅ 20 различных тематик
-✅ Автоматический постинг в каналы
-✅ Перепост из других каналов
-✅ Настройка размера постов
-✅ Расписание публикаций
-✅ Бесплатный тариф с базовыми функциями
+📝 *Мои возможности:*
+• 🎨 20 разных тематик для постов
+• 🤖 Генерация уникальных постов через GigaChat
+• 📏 5 размеров постов
+• 🎯 Автоматический постинг по расписанию
+• 📢 Поддержка нескольких каналов
+• 🔄 Перепост из других каналов
 
-💡 *Как начать:*
-1. Добавьте бота в свой канал как администратора
-2. Нажмите "➕ Добавить канал"
-3. Выберите тему и размер постов
-4. Настройте автопостинг
+💎 *Все тарифы БЕСПЛАТНЫЕ!*
+• Базовый: 1 канал, 10 постов/день
+• Стандартный: 5 каналов, 30 постов/день
+• Профессиональный: 15 каналов, 100 постов/день
+• Unlimited: Безлимит каналов, 500 постов/день
 
-🎁 *Бесплатный тариф:* 1 канал, 5 постов/день
-
-👇 *Выберите действие:*
+👇 *Нажмите кнопку ниже, чтобы начать!*
 """
-    keyboard = await get_main_keyboard(user.id)
-    await update.message.reply_text(welcome, parse_mode='Markdown', reply_markup=keyboard)
+    keyboard = await get_main_keyboard()
+    await update.message.reply_text(welcome_text, parse_mode='Markdown', reply_markup=keyboard)
 
-async def add_channel_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "📢 *Добавление канала*\n\n"
-        "1️⃣ Добавьте бота в канал как администратора\n"
-        "2️⃣ Перешлите любое сообщение из канала сюда\n"
-        "3️⃣ Бот автоматически определит канал\n\n"
-        "или просто отправьте ID канала: @username или -100xxxxxx",
-        parse_mode='Markdown'
-    )
-    context.user_data['awaiting_channel'] = True
-
-async def handle_channel_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if context.user_data.get('awaiting_channel'):
-        user_id = update.effective_user.id
-        text = update.message.text
-        
-        sub = bot.get_user_subscription(user_id)
-        tariff = TARIFFS[sub.tariff]
-        
-        if len(sub.channels) >= tariff["channels"]:
-            await update.message.reply_text(
-                f"❌ Лимит каналов для вашего тарифа: {tariff['channels']}\n"
-                f"💎 Купите более дорогой тариф для добавления большего количества каналов"
-            )
-            return
-        
-        channel_id = None
-        if text.startswith('@'):
-            try:
-                chat = await context.bot.get_chat(text)
-                channel_id = str(chat.id)
-                channel_name = chat.title
-            except:
-                await update.message.reply_text("❌ Не удалось найти канал. Проверьте username")
-                return
-        elif text.startswith('-100'):
-            channel_id = text
-            try:
-                chat = await context.bot.get_chat(int(text))
-                channel_name = chat.title
-            except:
-                channel_name = "Неизвестный канал"
-        else:
-            if update.message.forward_from_chat:
-                chat = update.message.forward_from_chat
-                channel_id = str(chat.id)
-                channel_name = chat.title
-            else:
-                await update.message.reply_text("❌ Отправьте ID канала или перешлите сообщение из канала")
-                return
-        
-        if channel_id not in sub.channels:
-            sub.channels.append(channel_id)
-            bot.save_data()
-            
-            await update.message.reply_text(
-                f"✅ Канал *{channel_name}* успешно добавлен!\n\n"
-                f"📊 Каналов: {len(sub.channels)}/{tariff['channels']}\n"
-                f"🎯 Теперь выберите тему для постов в /menu",
-                parse_mode='Markdown'
-            )
-        
-        context.user_data['awaiting_channel'] = False
-
-async def select_theme(update: Update, context: ContextTypes.DEFAULT_TYPE, message=None):
-    keyboard = await get_themes_keyboard()
-    if message:
-        await message.edit_text("🎨 *Выберите тему для постов:*", parse_mode='Markdown', reply_markup=keyboard)
-    elif update.callback_query:
-        await update.callback_query.edit_message_text("🎨 *Выберите тему:*", parse_mode='Markdown', reply_markup=keyboard)
-    else:
-        await update.message.reply_text("🎨 *Выберите тему:*", parse_mode='Markdown', reply_markup=keyboard)
-
-async def select_size(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = await get_sizes_keyboard()
-    if update.callback_query:
-        await update.callback_query.edit_message_text("📏 *Выберите размер постов:*", parse_mode='Markdown', reply_markup=keyboard)
-    else:
-        await update.message.reply_text("📏 *Выберите размер постов:*", parse_mode='Markdown', reply_markup=keyboard)
-
-async def auto_posting_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def add_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    sub = bot.get_user_subscription(user_id)
+    user_data = db.get_user(user_id)
     
-    text = "🤖 *Настройка автопостинга*\n\n"
+    tariff = TARIFFS.get(user_data.tariff, TARIFFS["free"])
     
-    for channel_id in sub.channels:
-        try:
-            chat = await context.bot.get_chat(int(channel_id))
-            channel_name = chat.title
-        except:
-            channel_name = "Канал"
-        
-        config = bot.auto_configs.get(channel_id)
-        if config:
-            theme_name = POSTING_THEMES.get(config.theme, {}).get('name', config.theme)
-            size_name = POST_SIZES.get(config.size, {}).get('name', config.size)
-            status = "✅ Активен" if config.is_active else "⏸ Остановлен"
-            text += f"\n📢 *{channel_name}*\n   Тема: {theme_name}\n   Размер: {size_name}\n   Интервал: {config.interval_minutes} мин\n   Статус: {status}\n"
-        else:
-            text += f"\n📢 *{channel_name}* - ❌ не настроен\n"
-    
-    keyboard = []
-    for channel_id in sub.channels:
-        try:
-            chat = await context.bot.get_chat(int(channel_id))
-            keyboard.append([InlineKeyboardButton(f"⚙️ {chat.title}", callback_data=f"config_{channel_id}")])
-        except:
-            pass
-    
-    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_main")])
-    
-    if update.callback_query:
-        await update.callback_query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
-    else:
-        await update.message.reply_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
-
-async def configure_auto_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    channel_id = query.data.replace("config_", "")
-    
-    keyboard = [
-        [InlineKeyboardButton("🎨 Выбрать тему", callback_data=f"set_theme_{channel_id}")],
-        [InlineKeyboardButton("📏 Выбрать размер", callback_data=f"set_size_{channel_id}")],
-        [InlineKeyboardButton("⏱ Интервал (мин)", callback_data=f"set_interval_{channel_id}")],
-        [InlineKeyboardButton("▶️ Включить", callback_data=f"enable_{channel_id}")],
-        [InlineKeyboardButton("⏸ Выключить", callback_data=f"disable_{channel_id}")],
-        [InlineKeyboardButton("🔙 Назад", callback_data="auto_posting")]
-    ]
-    
-    await query.edit_message_text("⚙️ *Настройка автопостинга*\n\nВыберите параметр:", parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
-
-async def random_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    sub = bot.get_user_subscription(user_id)
-    
-    if not sub.channels:
-        await update.message.reply_text("❌ Сначала добавьте канал через '➕ Добавить канал'")
-        return
-    
-    if not sub.can_post():
-        await update.message.reply_text("❌ Достигнут лимит постов на сегодня! Купите тариф для увеличения лимита.")
-        return
-    
-    random_theme = random.choice(list(POSTING_THEMES.keys()))
-    random_size = random.choice(list(POST_SIZES.keys()))
-    
-    await update.message.reply_text(f"🎲 Генерирую пост на тему {POSTING_THEMES[random_theme]['emoji']} {POSTING_THEMES[random_theme]['name']}...")
-    
-    success = await bot.post_to_channel(context, sub.channels[0], random_theme, random_size)
-    
-    if success:
-        await update.message.reply_text("✅ Пост успешно опубликован!")
-        sub.add_post()
-        bot.save_data()
-    else:
-        await update.message.reply_text("❌ Ошибка при публикации")
-
-async def repost_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    sub = bot.get_user_subscription(user_id)
-    tariff = TARIFFS[sub.tariff]
-    
-    if not tariff["can_repost"]:
+    if len(user_data.channels) >= tariff["channels"]:
         await update.message.reply_text(
-            "❌ *Перепост недоступен на вашем тарифе*\n\n"
-            "💎 Купите тариф Базовый или выше для перепоста из других каналов",
+            f"❌ *Лимит каналов достигнут!*\n\n"
+            f"Ваш тариф: {tariff['name']}\n"
+            f"Максимум каналов: {tariff['channels']}\n\n"
+            f"Используйте /tariffs чтобы выбрать тариф с большим количеством каналов",
             parse_mode='Markdown'
         )
         return
     
-    text = "🔄 *Перепост из каналов*\n\n"
-    text += "Добавьте каналы, из которых бот будет перепостить:\n"
-    text += "Отправьте ссылку или username канала\n\n"
-    text += "📋 *Активные источники:*\n"
-    
-    for src_id, src in bot.source_channels.items():
-        text += f"• {src.channel_name} → тема: {POSTING_THEMES[src.theme]['emoji']}\n"
-    
-    await update.message.reply_text(text, parse_mode='Markdown')
-    context.user_data['awaiting_source'] = True
+    await update.message.reply_text(
+        "📢 *Как добавить канал:*\n\n"
+        "1️⃣ Добавьте бота в канал как администратора\n"
+        "2️⃣ Отправьте сюда ID канала в формате:\n"
+        "   • `@username_канала`\n"
+        "   • `-1001234567890`\n"
+        "3️⃣ Или перешлите любое сообщение из канала\n\n"
+        "📝 *Инструкция получения ID:*\n"
+        "• Отправьте в канал любое сообщение\n"
+        "• Перешлите его сюда\n\n"
+        "⏸ *Отмена:* /cancel",
+        parse_mode='Markdown'
+    )
+    context.user_data['awaiting_channel'] = True
 
-async def my_channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_channel_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.user_data.get('awaiting_channel'):
+        return
+    
     user_id = update.effective_user.id
-    sub = bot.get_user_subscription(user_id)
-    tariff = TARIFFS[sub.tariff]
+    user_data = db.get_user(user_id)
+    text = update.message.text
     
-    text = f"📋 *Ваши каналы* ({len(sub.channels)}/{tariff['channels']})\n\n"
+    if text == "/cancel":
+        context.user_data['awaiting_channel'] = False
+        await update.message.reply_text("❌ Добавление канала отменено")
+        return
     
-    for channel_id in sub.channels:
+    channel_id = None
+    channel_name = "Новый канал"
+    
+    # Определяем ID канала
+    if update.message.forward_from_chat:
+        chat = update.message.forward_from_chat
+        channel_id = str(chat.id)
+        channel_name = chat.title
+    elif text.startswith('@'):
         try:
-            chat = await context.bot.get_chat(int(channel_id))
-            text += f"📢 *{chat.title}*\n"
-            text += f"🆔 `{channel_id}`\n"
-            
-            config = bot.auto_configs.get(channel_id)
-            if config:
-                theme = POSTING_THEMES.get(config.theme, {})
-                size = POST_SIZES.get(config.size, {})
-                text += f"🎨 Тема: {theme.get('emoji', '')} {theme.get('name', '-')}\n"
-                text += f"📏 Размер: {size.get('name', '-')}\n"
-                text += f"⏱ Интервал: {config.interval_minutes} мин\n"
-                text += f"🔄 Статус: {'✅ Активен' if config.is_active else '⏸ Остановлен'}\n"
-            text += "\n"
+            chat = await context.bot.get_chat(text)
+            channel_id = str(chat.id)
+            channel_name = chat.title
         except:
-            text += f"⚠️ Канал {channel_id} - недоступен\n\n"
+            await update.message.reply_text("❌ Не удалось найти канал. Проверьте username")
+            return
+    elif text.startswith('-100'):
+        channel_id = text
+        try:
+            chat = await context.bot.get_chat(int(text))
+            channel_name = chat.title
+        except:
+            channel_name = "Канал"
+    
+    if not channel_id:
+        await update.message.reply_text("❌ Не удалось определить канал. Перешлите сообщение из канала или отправьте его ID")
+        return
+    
+    # Проверяем, не добавлен ли уже
+    for ch in user_data.channels:
+        if ch.get("id") == channel_id:
+            await update.message.reply_text(f"❌ Канал *{channel_name}* уже добавлен!", parse_mode='Markdown')
+            return
+    
+    # Проверяем лимиты
+    tariff = TARIFFS.get(user_data.tariff, TARIFFS["free"])
+    if len(user_data.channels) >= tariff["channels"]:
+        await update.message.reply_text("❌ Достигнут лимит каналов для вашего тарифа!")
+        return
+    
+    # Добавляем канал
+    user_data.channels.append({
+        "id": channel_id,
+        "name": channel_name,
+        "added_at": time.time()
+    })
+    
+    # Создаем конфиг автопостинга
+    if channel_id not in user_data.auto_configs:
+        user_data.auto_configs[channel_id] = {
+            "theme": user_data.selected_theme,
+            "size": user_data.selected_size,
+            "interval": 60,
+            "active": False,
+            "last_post": 0
+        }
+    
+    db.save()
+    context.user_data['awaiting_channel'] = False
+    
+    await update.message.reply_text(
+        f"✅ *Канал добавлен!*\n\n"
+        f"📢 Название: {channel_name}\n"
+        f"🆔 ID: `{channel_id}`\n"
+        f"📊 Всего каналов: {len(user_data.channels)}/{tariff['channels']}\n\n"
+        f"Теперь настройте автопостинг в меню 🤖 Автопостинг",
+        parse_mode='Markdown'
+    )
+
+async def select_theme(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query:
+        await query.answer()
+        keyboard = await get_themes_keyboard()
+        await query.edit_message_text(
+            "🎨 *Выберите тему для постов*\n\n"
+            "Доступно 20 уникальных тематик:",
+            parse_mode='Markdown',
+            reply_markup=keyboard
+        )
+    else:
+        keyboard = await get_themes_keyboard()
+        await update.message.reply_text(
+            "🎨 *Выберите тему для постов*",
+            parse_mode='Markdown',
+            reply_markup=keyboard
+        )
+
+async def select_size(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    keyboard = await get_sizes_keyboard()
+    text = "📏 *Выберите размер постов*\n\n" + "\n".join([f"{s['emoji']} {s['name']}: {s['min']}-{s['max']} символов" for s in POST_SIZES.values()])
+    
+    if query:
+        await query.answer()
+        await query.edit_message_text(text, parse_mode='Markdown', reply_markup=keyboard)
+    else:
+        await update.message.reply_text(text, parse_mode='Markdown', reply_markup=keyboard)
+
+async def auto_posting(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user_data = db.get_user(user_id)
+    
+    if not user_data.channels:
+        await update.message.reply_text(
+            "❌ *Нет добавленных каналов*\n\n"
+            "Сначала добавьте канал через '📢 Добавить канал'",
+            parse_mode='Markdown'
+        )
+        return
+    
+    text = "🤖 *Настройка автопостинга*\n\nВыберите канал для настройки:\n\n"
     
     keyboard = []
-    for channel_id in sub.channels:
-        keyboard.append([InlineKeyboardButton(f"🗑 Удалить канал", callback_data=f"del_channel_{channel_id}")])
-    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_main")])
+    for ch in user_data.channels:
+        config = user_data.auto_configs.get(ch['id'], {})
+        status = "✅" if config.get('active', False) else "⏸"
+        keyboard.append([
+            InlineKeyboardButton(
+                f"{status} {ch['name'][:25]}",
+                callback_data=f"edit_auto_{ch['id']}"
+            )
+        ])
+    
+    keyboard.append([InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu")])
     
     if update.callback_query:
+        await update.callback_query.answer()
         await update.callback_query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
     else:
         await update.message.reply_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
 
-async def tariffs_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    sub = bot.get_user_subscription(user_id)
+async def edit_auto_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
     
-    text = "💎 *Тарифы*\n\n"
+    channel_id = query.data.replace("edit_auto_", "")
+    user_id = query.from_user.id
+    user_data = db.get_user(user_id)
+    
+    if channel_id not in user_data.auto_configs:
+        user_data.auto_configs[channel_id] = {
+            "theme": user_data.selected_theme,
+            "size": user_data.selected_size,
+            "interval": 60,
+            "active": False,
+            "last_post": 0
+        }
+        db.save()
+    
+    config = user_data.auto_configs[channel_id]
+    keyboard = await get_auto_settings_keyboard(channel_id, config)
+    
+    # Находим имя канала
+    channel_name = "Канал"
+    for ch in user_data.channels:
+        if ch['id'] == channel_id:
+            channel_name = ch['name']
+            break
+    
+    await query.edit_message_text(
+        f"⚙️ *Настройка автопостинга*\n\n"
+        f"📢 Канал: {channel_name}\n\n"
+        f"Настройте параметры:",
+        parse_mode='Markdown',
+        reply_markup=keyboard
+    )
+
+async def post_now(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user_data = db.get_user(user_id)
+    
+    if not user_data.channels:
+        await update.message.reply_text("❌ Сначала добавьте канал!")
+        return
+    
+    if not user_data.can_post():
+        tariff = TARIFFS[user_data.tariff]
+        await update.message.reply_text(
+            f"❌ *Лимит постов на сегодня исчерпан!*\n\n"
+            f"📊 Ваш тариф: {tariff['name']}\n"
+            f"📝 Постов в день: {tariff['posts_per_day']}\n"
+            f"⏳ Сброс завтра в 00:00\n\n"
+            f"Используйте /tariffs для выбора другого тарифа",
+            parse_mode='Markdown'
+        )
+        return
+    
+    keyboard = await get_channels_keyboard(user_data)
+    await update.message.reply_text(
+        "📤 *В какой канал опубликовать пост?*",
+        parse_mode='Markdown',
+        reply_markup=keyboard
+    )
+
+async def publish_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    channel_id = query.data.replace("channel_", "")
+    user_id = query.from_user.id
+    user_data = db.get_user(user_id)
+    
+    if not user_data.can_post():
+        await query.edit_message_text("❌ Лимит постов на сегодня!")
+        return
+    
+    theme = user_data.selected_theme
+    size = user_data.selected_size
+    
+    await query.edit_message_text(
+        f"🤖 *Генерация поста...*\n\n"
+        f"🎨 Тема: {POSTING_THEMES[theme]['emoji']} {POSTING_THEMES[theme]['name']}\n"
+        f"📏 Размер: {POST_SIZES[size]['name']}\n"
+        f"⏳ Пожалуйста, подождите...",
+        parse_mode='Markdown'
+    )
+    
+    success = await db.post_to_channel(context, channel_id, theme, size)
+    
+    if success:
+        tariff = TARIFFS[user_data.tariff]
+        remaining = tariff["posts_per_day"] - user_data.daily_posts
+        await query.edit_message_text(
+            f"✅ *Пост успешно опубликован!*\n\n"
+            f"📊 Осталось постов сегодня: {remaining}/{tariff['posts_per_day']}\n\n"
+            f"Чтобы опубликовать ещё, нажмите /menu",
+            parse_mode='Markdown',
+            reply_markup=await get_main_keyboard()
+        )
+    else:
+        await query.edit_message_text("❌ Ошибка при публикации поста. Попробуйте позже.")
+
+async def my_channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user_data = db.get_user(user_id)
+    tariff = TARIFFS[user_data.tariff]
+    
+    if not user_data.channels:
+        await update.message.reply_text("❌ У вас нет добавленных каналов. Используйте '📢 Добавить канал'")
+        return
+    
+    text = f"📋 *Ваши каналы* ({len(user_data.channels)}/{tariff['channels']})\n\n"
+    
+    for ch in user_data.channels:
+        config = user_data.auto_configs.get(ch['id'], {})
+        status = "✅ Активен" if config.get('active', False) else "⏸ Неактивен"
+        theme = POSTING_THEMES.get(config.get('theme', 'ai_news'), POSTING_THEMES['ai_news'])
+        
+        text += f"📢 *{ch['name']}*\n"
+        text += f"🆔 `{ch['id']}`\n"
+        text += f"🎨 Тема: {theme['emoji']} {theme['name']}\n"
+        text += f"🔄 Автопостинг: {status}\n"
+        text += f"⏱ Интервал: {config.get('interval', 60)} мин\n"
+        text += f"📏 Размер: {POST_SIZES.get(config.get('size', 'medium'), POST_SIZES['medium'])['name']}\n"
+        text += "─" * 20 + "\n"
+    
+    keyboard = []
+    for ch in user_data.channels:
+        keyboard.append([InlineKeyboardButton(f"🗑 Удалить {ch['name'][:20]}", callback_data=f"delete_channel_{ch['id']}")])
+    keyboard.append([InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu")])
+    
+    await update.message.reply_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+
+async def delete_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    channel_id = query.data.replace("delete_channel_", "")
+    user_id = query.from_user.id
+    user_data = db.get_user(user_id)
+    
+    user_data.channels = [ch for ch in user_data.channels if ch['id'] != channel_id]
+    if channel_id in user_data.auto_configs:
+        del user_data.auto_configs[channel_id]
+    
+    db.save()
+    await query.edit_message_text("✅ Канал удален!")
+    await my_channels(update, context)
+
+async def tariffs(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user_data = db.get_user(user_id)
+    
+    text = "💎 *Все тарифы БЕСПЛАТНЫЕ!*\n\n"
     
     for tariff_key, tariff in TARIFFS.items():
-        price = f"{tariff['price']}₽/мес" if tariff['price'] > 0 else "Бесплатно"
-        current = " ✅ ТЕКУЩИЙ" if sub.tariff == tariff_key else ""
-        
-        text += f"*{tariff['name']}{current}*\n"
-        text += f"💰 Цена: {price}\n"
+        current = " ✅ *(Ваш тариф)*" if user_data.tariff == tariff_key else ""
+        text += f"*{tariff['name']}*{current}\n"
         text += f"📊 Каналов: {tariff['channels']}\n"
-        text += f"📝 Постов/день: {tariff['posts_per_day']}\n"
+        text += f"📝 Постов в день: {tariff['posts_per_day']}\n"
         text += f"🔄 Перепост: {'✅' if tariff['can_repost'] else '❌'}\n"
-        text += f"⏰ Расписание: {'✅' if tariff['can_schedule'] else '❌'}\n"
-        text += f"🖼 Картинки: до {tariff['image_limit']}\n\n"
+        text += f"⏰ Автопостинг: {'✅' if tariff['auto_posting'] else '❌'}\n"
+        text += "─" * 25 + "\n\n"
     
-    text += "\n💡 *Как оплатить:*\n"
-    text += "Напишите @ для оплаты\n"
-    text += "После оплаты ваш тариф будет обновлен"
+    text += "\n💡 *Как повысить тариф?*\nПросто выберите нужный тариф в меню ниже!"
     
     keyboard = await get_tariffs_keyboard()
     if update.callback_query:
@@ -846,96 +949,97 @@ async def tariffs_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text(text, parse_mode='Markdown', reply_markup=keyboard)
 
-async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    sub = bot.get_user_subscription(user_id)
-    tariff = TARIFFS[sub.tariff]
-    
-    remaining = tariff["posts_per_day"] - sub.posts_today
-    
-    text = f"📊 *Ваша статистика*\n\n"
-    text += f"💎 *Тариф:* {tariff['name']}\n"
-    text += f"📊 *Каналов:* {len(sub.channels)}/{tariff['channels']}\n"
-    text += f"📝 *Постов сегодня:* {sub.posts_today}/{tariff['posts_per_day']}\n"
-    text += f"⏳ *Осталось:* {remaining}\n"
-    text += f"🎨 *Тем:* {len(sub.themes) if sub.themes else 'не выбраны'}\n"
-    text += f"\n📈 *Всего постов в боте:* {len(bot.post_history)}\n"
-    
-    keyboard = [[InlineKeyboardButton("🔙 Назад", callback_data="back_main")]]
-    await update.message.reply_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
-
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    help_text = """
-🆘 *Помощь по работе бота*
-
-📌 *Основные команды:*
-/start - Главное меню
-/menu - Открыть меню
-
-📢 *Управление каналами:*
-• Добавить канал - бот будет постить в него
-• Автопостинг - настройка автоматических постов
-• Перепост - копирование постов из других каналов
-
-🎨 *Темы (20 штук):*
-AI новости, Криптовалюты, NFT, Telegram, Бизнес, Технологии, Наука, Здоровье, Психология, Маркетинг, Дизайн, Программирование, Игры, Кино, Музыка, Спорт, Путешествия, Кулинария, Образование, Мотивация
-
-📏 *Размеры постов:*
-Мини (100-300), Короткий (300-600), Средний (600-1000), Длинный (1000-1500), Макси (1500-2000)
-
-💎 *Тарифы:*
-• Бесплатный - 1 канал, 5 постов/день
-• Базовый (299₽) - 3 канала, 15 постов/день
-• Про (699₽) - 10 каналов, 50 постов/день
-• Премиум (1499₽) - безлимит, 200 постов/день
-
-❓ *Вопросы:* @
-"""
-    await update.message.reply_text(help_text, parse_mode='Markdown')
-
-async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def select_tariff(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
+    tariff_key = query.data.replace("tariff_select_", "")
+    user_id = query.from_user.id
+    user_data = db.get_user(user_id)
+    
+    if tariff_key in TARIFFS:
+        user_data.tariff = tariff_key
+        db.save()
+        
+        tariff = TARIFFS[tariff_key]
+        await query.edit_message_text(
+            f"✅ *Тариф изменен!*\n\n"
+            f"Ваш новый тариф: {tariff['name']}\n"
+            f"📊 Каналов: {tariff['channels']}\n"
+            f"📝 Постов в день: {tariff['posts_per_day']}\n\n"
+            f"Теперь вы можете добавить до {tariff['channels']} каналов!",
+            parse_mode='Markdown',
+            reply_markup=await get_main_keyboard()
+        )
+
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user_data = db.get_user(user_id)
+    tariff = TARIFFS[user_data.tariff]
+    remaining = tariff["posts_per_day"] - user_data.daily_posts
+    
+    text = f"""
+📊 *Ваша статистика*
+
+👤 Пользователь: {user_data.first_name}
+💎 Тариф: {tariff['name']}
+📊 Каналов: {len(user_data.channels)}/{tariff['channels']}
+📝 Постов сегодня: {user_data.daily_posts}/{tariff['posts_per_day']}
+⏳ Осталось постов: {remaining}
+🎨 Текущая тема: {POSTING_THEMES[user_data.selected_theme]['emoji']} {POSTING_THEMES[user_data.selected_theme]['name']}
+📏 Текущий размер: {POST_SIZES[user_data.selected_size]['name']}
+
+🔄 *Автопостинг:*
+"""
+    active_count = 0
+    for ch in user_data.channels:
+        config = user_data.auto_configs.get(ch['id'], {})
+        if config.get('active', False):
+            active_count += 1
+            text += f"• {ch['name'][:20]}: ✅ {config.get('interval', 60)} мин\n"
+    
+    if active_count == 0:
+        text += "• Нет активных автопостов\n"
+    
+    text += f"\n📈 Всего постов в боте: {len(db.post_history)}"
+    
+    keyboard = [[InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu")]]
+    await update.message.reply_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
     data = query.data
     
-    if data == "back_main":
-        keyboard = await get_main_keyboard(query.from_user.id)
+    if data == "main_menu":
+        keyboard = await get_main_keyboard()
         await query.edit_message_text("🏠 *Главное меню*", parse_mode='Markdown', reply_markup=keyboard)
     
     elif data == "add_channel":
-        context.user_data['awaiting_channel'] = True
-        await query.edit_message_text(
-            "📢 *Добавление канала*\n\n"
-            "Перешлите любое сообщение из канала сюда\n"
-            "или отправьте ID канала: @username или -100xxxxxx",
-            parse_mode='Markdown'
-        )
-    
-    elif data == "auto_posting":
-        await auto_posting_menu(update, context)
-    
-    elif data == "repost_menu":
-        await repost_menu(update, context)
+        await add_channel(update, context)
     
     elif data == "select_theme":
-        await select_theme(update, context, query.message)
+        keyboard = await get_themes_keyboard()
+        await query.edit_message_text("🎨 *Выберите тему*", parse_mode='Markdown', reply_markup=keyboard)
     
     elif data == "select_size":
-        await select_size(update, context)
+        keyboard = await get_sizes_keyboard()
+        await query.edit_message_text("📏 *Выберите размер*", parse_mode='Markdown', reply_markup=keyboard)
     
-    elif data == "tariffs":
-        await tariffs_menu(update, context)
+    elif data == "auto_posting":
+        await auto_posting(update, context)
     
-    elif data == "stats":
-        keyboard = await get_main_keyboard(query.from_user.id)
-        await stats(update, context)
-    
-    elif data == "random_post":
-        await random_post(update, context)
+    elif data == "post_now":
+        await post_now(update, context)
     
     elif data == "my_channels":
         await my_channels(update, context)
+    
+    elif data == "tariffs":
+        await tariffs(update, context)
+    
+    elif data == "stats":
+        keyboard = await get_main_keyboard()
+        await query.edit_message_text("📊 *Статистика*\nИспользуйте /stats", parse_mode='Markdown', reply_markup=keyboard)
     
     elif data == "help":
         await help_command(update, context)
@@ -945,209 +1049,241 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = await get_themes_keyboard(page)
         await query.edit_message_reply_markup(reply_markup=keyboard)
     
-    elif data.startswith("theme_"):
-        theme = data.replace("theme_", "")
-        context.user_data['selected_theme'] = theme
+    elif data.startswith("theme_sel_"):
+        theme_key = data.replace("theme_sel_", "")
+        user_id = query.from_user.id
+        user_data = db.get_user(user_id)
+        user_data.selected_theme = theme_key
+        db.save()
+        
         await query.edit_message_text(
-            f"✅ Тема *{POSTING_THEMES[theme]['name']}* выбрана!\n\n"
+            f"✅ *Тема выбрана!*\n\n"
+            f"🎨 {POSTING_THEMES[theme_key]['emoji']} {POSTING_THEMES[theme_key]['name']}\n\n"
             f"Теперь выберите размер поста:",
             parse_mode='Markdown',
             reply_markup=await get_sizes_keyboard()
         )
     
-    elif data.startswith("size_"):
-        size = data.replace("size_", "")
-        theme = context.user_data.get('selected_theme')
+    elif data.startswith("size_sel_"):
+        size_key = data.replace("size_sel_", "")
+        user_id = query.from_user.id
+        user_data = db.get_user(user_id)
+        user_data.selected_size = size_key
+        db.save()
         
-        if theme:
-            user_id = query.from_user.id
-            sub = bot.get_user_subscription(user_id)
-            
-            if sub.channels:
-                if sub.can_post():
-                    await query.edit_message_text(f"🎲 Генерирую пост на тему {POSTING_THEMES[theme]['emoji']}...")
-                    success = await bot.post_to_channel(context, sub.channels[0], theme, size)
-                    if success:
-                        sub.add_post()
-                        bot.save_data()
-                        await query.edit_message_text("✅ Пост успешно опубликован!")
-                    else:
-                        await query.edit_message_text("❌ Ошибка при публикации")
-                else:
-                    await query.edit_message_text("❌ Достигнут лимит постов на сегодня!")
-            else:
-                await query.edit_message_text("❌ Сначала добавьте канал через '➕ Добавить канал'")
-        else:
-            await query.edit_message_text("❌ Сначала выберите тему")
+        await query.edit_message_text(
+            f"✅ *Размер выбран!*\n\n"
+            f"📏 {POST_SIZES[size_key]['name']} ({POST_SIZES[size_key]['min']}-{POST_SIZES[size_key]['max']} символов)\n\n"
+            f"🎨 Тема: {POSTING_THEMES[user_data.selected_theme]['emoji']} {POSTING_THEMES[user_data.selected_theme]['name']}\n\n"
+            f"Теперь вы можете опубликовать пост через главное меню или настроить автопостинг.",
+            parse_mode='Markdown',
+            reply_markup=await get_main_keyboard()
+        )
     
-    elif data.startswith("config_"):
-        await configure_auto_post(update, context)
+    elif data.startswith("edit_auto_"):
+        await edit_auto_config(update, context)
     
-    elif data.startswith("set_theme_"):
-        channel_id = data.replace("set_theme_", "")
-        context.user_data['config_channel'] = channel_id
+    elif data.startswith("auto_theme_"):
+        channel_id = data.replace("auto_theme_", "")
+        context.user_data['auto_channel'] = channel_id
         keyboard = await get_themes_keyboard()
         await query.edit_message_text("🎨 Выберите тему для автопостинга:", reply_markup=keyboard)
     
-    elif data.startswith("set_size_"):
-        channel_id = data.replace("set_size_", "")
+    elif data.startswith("auto_size_"):
+        channel_id = data.replace("auto_size_", "")
+        context.user_data['auto_size_channel'] = channel_id
         keyboard = []
         for size_key, size in POST_SIZES.items():
-            keyboard.append([InlineKeyboardButton(size['name'], callback_data=f"auto_size_{channel_id}_{size_key}")])
-        keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data=f"config_{channel_id}")])
+            keyboard.append([InlineKeyboardButton(f"{size['emoji']} {size['name']}", callback_data=f"auto_set_size_{channel_id}_{size_key}")])
+        keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data=f"edit_auto_{channel_id}")])
         await query.edit_message_text("📏 Выберите размер:", reply_markup=InlineKeyboardMarkup(keyboard))
     
-    elif data.startswith("auto_size_"):
+    elif data.startswith("auto_interval_"):
+        channel_id = data.replace("auto_interval_", "")
+        keyboard = await get_interval_keyboard(channel_id)
+        await query.edit_message_text("⏱ Выберите интервал публикации:", reply_markup=keyboard)
+    
+    elif data.startswith("interval_set_"):
         parts = data.split("_")
         channel_id = parts[2]
-        size = parts[3]
-        
-        if channel_id not in bot.auto_configs:
-            bot.auto_configs[channel_id] = AutoPostConfig(
-                channel_id=channel_id,
-                theme="ai_news",
-                size=size,
-                interval_minutes=60
-            )
-        else:
-            bot.auto_configs[channel_id].size = size
-        
-        bot.save_data()
-        await query.edit_message_text(f"✅ Размер установлен! Теперь выберите тему:", reply_markup=await get_themes_keyboard())
-    
-    elif data.startswith("set_interval_"):
-        channel_id = data.replace("set_interval_", "")
-        context.user_data['interval_channel'] = channel_id
-        await query.edit_message_text(
-            "⏱ Введите интервал в минутах (от 30 до 1440):\n"
-            "Пример: 60 - каждый час, 120 - раз в 2 часа",
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("🔙 Назад", callback_data=f"config_{channel_id}")
-            ]])
-        )
-        context.user_data['awaiting_interval'] = True
-    
-    elif data.startswith("enable_"):
-        channel_id = data.replace("enable_", "")
-        if channel_id in bot.auto_configs:
-            bot.auto_configs[channel_id].is_active = True
-            bot.save_data()
-            await query.edit_message_text("✅ Автопостинг включен!")
-    
-    elif data.startswith("disable_"):
-        channel_id = data.replace("disable_", "")
-        if channel_id in bot.auto_configs:
-            bot.auto_configs[channel_id].is_active = False
-            bot.save_data()
-            await query.edit_message_text("⏸ Автопостинг выключен!")
-    
-    elif data.startswith("del_channel_"):
-        channel_id = data.replace("del_channel_", "")
+        interval = int(parts[3])
         user_id = query.from_user.id
-        sub = bot.get_user_subscription(user_id)
+        user_data = db.get_user(user_id)
         
-        if channel_id in sub.channels:
-            sub.channels.remove(channel_id)
-            if channel_id in bot.auto_configs:
-                del bot.auto_configs[channel_id]
-            bot.save_data()
-            await query.edit_message_text("✅ Канал удален!")
-            await my_channels(update, context)
+        if channel_id in user_data.auto_configs:
+            user_data.auto_configs[channel_id]['interval'] = interval
+            db.save()
+        
+        config = user_data.auto_configs[channel_id]
+        keyboard = await get_auto_settings_keyboard(channel_id, config)
+        await query.edit_message_text(
+            f"✅ Интервал установлен: {AUTO_INTERVALS.get(interval, f'{interval} минут')}",
+            reply_markup=keyboard
+        )
+    
+    elif data.startswith("auto_toggle_"):
+        channel_id = data.replace("auto_toggle_", "")
+        user_id = query.from_user.id
+        user_data = db.get_user(user_id)
+        
+        if channel_id in user_data.auto_configs:
+            user_data.auto_configs[channel_id]['active'] = not user_data.auto_configs[channel_id].get('active', False)
+            db.save()
+        
+        config = user_data.auto_configs[channel_id]
+        keyboard = await get_auto_settings_keyboard(channel_id, config)
+        await query.edit_message_reply_markup(reply_markup=keyboard)
+    
+    elif data.startswith("auto_save_"):
+        channel_id = data.replace("auto_save_", "")
+        user_id = query.from_user.id
+        user_data = db.get_user(user_id)
+        
+        if channel_id in user_data.auto_configs:
+            user_data.auto_configs[channel_id]['active'] = True
+            db.save()
+        
+        await query.edit_message_text(
+            f"✅ *Настройки автопостинга сохранены!*\n\n"
+            f"Бот будет автоматически публиковать посты в выбранный канал.",
+            parse_mode='Markdown',
+            reply_markup=await get_main_keyboard()
+        )
+    
+    elif data.startswith("auto_set_size_"):
+        parts = data.split("_")
+        channel_id = parts[3]
+        size_key = parts[4]
+        user_id = query.from_user.id
+        user_data = db.get_user(user_id)
+        
+        if channel_id in user_data.auto_configs:
+            user_data.auto_configs[channel_id]['size'] = size_key
+            db.save()
+        
+        config = user_data.auto_configs[channel_id]
+        keyboard = await get_auto_settings_keyboard(channel_id, config)
+        await query.edit_message_text(
+            f"✅ Размер установлен: {POST_SIZES[size_key]['name']}",
+            reply_markup=keyboard
+        )
+    
+    elif data.startswith("channel_"):
+        await publish_post(update, context)
+    
+    elif data.startswith("delete_channel_"):
+        await delete_channel(update, context)
+    
+    elif data.startswith("tariff_select_"):
+        await select_tariff(update, context)
 
-async def handle_interval_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if context.user_data.get('awaiting_interval'):
-        try:
-            interval = int(update.message.text)
-            if 30 <= interval <= 1440:
-                channel_id = context.user_data.get('interval_channel')
-                if channel_id in bot.auto_configs:
-                    bot.auto_configs[channel_id].interval_minutes = interval
-                    bot.save_data()
-                    await update.message.reply_text(f"✅ Интервал установлен: {interval} минут")
-                else:
-                    await update.message.reply_text("❌ Канал не найден")
-            else:
-                await update.message.reply_text("❌ Интервал должен быть от 30 до 1440 минут")
-        except:
-            await update.message.reply_text("❌ Введите число")
-        
-        context.user_data['awaiting_interval'] = False
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    help_text = """
+🆘 *Помощь и инструкция*
 
-async def auto_post_job(context: ContextTypes.DEFAULT_TYPE):
-    """Автоматическая публикация постов по расписанию"""
-    for channel_id, config in bot.auto_configs.items():
-        if not config.is_active:
-            continue
-        
-        current_time = time.time()
-        if current_time - config.last_post < config.interval_minutes * 60:
-            continue
-        
-        # Находим владельца канала
-        for user_id, sub in bot.user_subscriptions.items():
-            if channel_id in sub.channels and sub.can_post():
-                success = await bot.post_to_channel(context, channel_id, config.theme, config.size, is_auto=True)
-                if success:
-                    config.last_post = current_time
-                    sub.add_post()
-                    bot.save_data()
-                    logger.info(f"Авто-пост в {channel_id} на тему {config.theme}")
-                break
+📌 *Как пользоваться ботом:*
 
-async def handle_forward_for_repost(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка пересылаемых сообщений для перепоста"""
-    if context.user_data.get('awaiting_source'):
-        user_id = update.effective_user.id
-        sub = bot.get_user_subscription(user_id)
-        
-        if not sub.can_post():
-            await update.message.reply_text("❌ Лимит постов!")
-            return
-        
-        forward = update.message.forward_from_chat
-        if forward:
-            source_id = str(forward.id)
-            source_name = forward.title
+1️⃣ *Добавьте канал*
+• Нажмите "📢 Добавить канал"
+• Добавьте бота в канал как администратора
+• Перешлите сообщение из канала или отправьте его ID
+
+2️⃣ *Выберите тему и размер*
+• 🎨 Выберите тему из 20 вариантов
+• 📏 Выберите размер поста
+• Темы и размеры можно менять в любой момент
+
+3️⃣ *Опубликуйте пост*
+• Нажмите "📤 Опубликовать пост"
+• Выберите канал
+• Бот сгенерирует уникальный пост через ИИ
+
+4️⃣ *Настройте автопостинг*
+• 🤖 Автопостинг → выберите канал
+• Настройте тему, размер, интервал
+• Включите автопостинг
+
+🎨 *20 тем:*
+""" + "\n".join([f"{t['emoji']} {t['name']}" for t in POSTING_THEMES.values()]) + """
+
+📏 *5 размеров:*
+• Мини: 100-300 символов
+• Короткий: 301-600 символов  
+• Средний: 601-1000 символов
+• Длинный: 1001-1500 символов
+• Максимальный: 1501-2000 символов
+
+💎 *Все тарифы БЕСПЛАТНЫЕ!*
+
+❓ *Вопросы:* Напишите @ для поддержки
+"""
+    await update.message.reply_text(help_text, parse_mode='Markdown')
+
+async def auto_post_check(context: ContextTypes.DEFAULT_TYPE):
+    """Проверка и выполнение автопостинга"""
+    now = time.time()
+    
+    for user_id, user_data in db.users.items():
+        for channel in user_data.channels:
+            channel_id = channel['id']
+            config = user_data.auto_configs.get(channel_id, {})
             
-            # Генерируем пост на основе пересланного
-            theme = random.choice(list(POSTING_THEMES.keys()))
-            size = random.choice(list(POST_SIZES.keys()))
+            if not config.get('active', False):
+                continue
             
-            content = f"📢 *Перепост из {source_name}*\n\n"
-            content += update.message.text or "Новый пост!"
+            last_post = config.get('last_post', 0)
+            interval = config.get('interval', 60) * 60
             
-            if sub.channels:
-                await bot.post_to_channel(context, sub.channels[0], theme, size)
-                await update.message.reply_text("✅ Перепост выполнен!")
-                sub.add_post()
-                bot.save_data()
-        
-        context.user_data['awaiting_source'] = False
+            if now - last_post >= interval:
+                if user_data.can_post():
+                    theme = config.get('theme', user_data.selected_theme)
+                    size = config.get('size', user_data.selected_size)
+                    
+                    success = await db.post_to_channel(context, channel_id, theme, size)
+                    
+                    if success:
+                        config['last_post'] = now
+                        db.save()
+                        logger.info(f"Автопостинг: канал {channel_id}, тема {theme}")
 
-# ==================== ЗАПУСК БОТА ====================
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.error(f"Ошибка: {context.error}")
+    if update and update.effective_message:
+        await update.effective_message.reply_text(
+            "⚠️ *Произошла ошибка. Попробуйте позже.*",
+            parse_mode='Markdown'
+        )
+
+# ==================== ЗАПУСК ====================
 def main():
-    bot.load_data()
+    db.load()
     
     application = Application.builder().token(TELEGRAM_TOKEN).build()
     
     # Команды
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("menu", start))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("tariffs", tariffs))
+    application.add_handler(CommandHandler("stats", stats))
+    application.add_handler(CommandHandler("cancel", lambda u,c: None))
     
     # Обработчики
     application.add_handler(CallbackQueryHandler(handle_callback))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_channel_message))
-    application.add_handler(MessageHandler(filters.FORWARDED, handle_forward_for_repost))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_interval_input))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_channel_input))
+    application.add_handler(MessageHandler(filters.FORWARDED, handle_channel_input))
     
-    # Job для автопостинга
+    application.add_error_handler(error_handler)
+    
+    # Автопостинг каждые 30 секунд
     job_queue = application.job_queue
     if job_queue:
-        job_queue.run_repeating(auto_post_job, interval=60, first=10)
+        job_queue.run_repeating(auto_post_check, interval=30, first=10)
     
     logger.info("🚀 Бот автопостинга запущен!")
-    logger.info(f"📊 Доступно тем: {len(POSTING_THEMES)}")
-    logger.info(f"💰 Тарифов: {len(TARIFFS)}")
+    logger.info(f"🎨 Доступно тем: {len(POSTING_THEMES)}")
+    logger.info(f"📏 Доступно размеров: {len(POST_SIZES)}")
+    logger.info(f"💎 Все тарифы бесплатные!")
     
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
