@@ -1505,7 +1505,7 @@ def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_custom_interval))
     
     logger.info("🚀 Бот автопостинга запущен!")
-    loggep.info(f"📊 Доступно тем: {len(POSTING_THEMES)}")
+    logger.info(f"📊 Доступно тем: {len(POSTING_THEMES)}")
     logger.info("💰 ВСЕ ТАРИФЫ БЕСПЛАТНЫЕ!")
     logger.info("⏱ Интервалы от 10 секунд!")
     logger.info("🔗 Добавление каналов ТОЛЬКО по ссылке!")
