@@ -81,147 +81,274 @@ TARIFFS = {
     }
 }
 
-# ==================== ТЕМЫ ДЛЯ ПОСТИНГА (20 ТЕМ) ====================
+# ==================== ТЕМЫ ДЛЯ ПОСТИНГА (30+ ТЕМ) ====================
 POSTING_THEMES = {
+    # === ТЕХНОЛОГИИ И IT ===
     "ai_news": {
         "name": "🤖 Новости AI",
         "emoji": "🤖",
+        "category": "Технологии",
         "description": "Новости искусственного интеллекта",
-        "hashtags": "#AI #ИскусственныйИнтеллект #НовостиAI",
-        "prompt": "Ты журналист, пишущий об AI. Создай интересный и уникальный пост о последних новостях в мире искусственного интеллекта."
-    },
-    "crypto": {
-        "name": "🪙 Криптовалюты",
-        "emoji": "🪙",
-        "description": "Новости криптовалют и блокчейна",
-        "hashtags": "#Криптовалюта #Биткоин #Блокчейн",
-        "prompt": "Ты крипто-аналитик. Создай уникальный пост о криптовалютах, блокчейне, DeFi, трендах рынка."
-    },
-    "nft": {
-        "name": "🎨 NFT",
-        "emoji": "🎨",
-        "description": "Новости NFT и цифрового искусства",
-        "hashtags": "#NFT #ЦифровоеИскусство #Метавселенная",
-        "prompt": "Ты эксперт по NFT. Создай уникальный пост о NFT коллекциях, digital art, метавселенных."
+        "hashtags": "#AI #ИскусственныйИнтеллект #НовостиAI #ChatGPT",
+        "prompt": "Ты журналист, пишущий об AI. Создай интересный и уникальный пост о последних новостях в мире искусственного интеллекта, нейросетях, ChatGPT."
     },
     "telegram": {
         "name": "📱 Telegram",
         "emoji": "📱",
-        "description": "Новости Telegram",
-        "hashtags": "#Telegram #Мессенджер #Обновления",
-        "prompt": "Ты блогер о Telegram. Создай уникальный пост о новых функциях Telegram, ботах, каналах."
+        "category": "Соцсети",
+        "description": "Новости Telegram, боты, каналы",
+        "hashtags": "#Telegram #Мессенджер #Обновления #TelegramBot",
+        "prompt": "Ты блогер о Telegram. Создай уникальный пост о новых функциях Telegram, топовых ботах, полезных каналах, секретных фишках мессенджера."
     },
+    "nft": {
+        "name": "🎨 NFT",
+        "emoji": "🎨",
+        "category": "Криптовалюты",
+        "description": "Новости NFT и цифрового искусства",
+        "hashtags": "#NFT #ЦифровоеИскусство #Метавселенная #OpenSea",
+        "prompt": "Ты эксперт по NFT. Создай уникальный пост о NFT коллекциях, digital art, метавселенных, трендах NFT рынка."
+    },
+    "crypto": {
+        "name": "🪙 Криптовалюты",
+        "emoji": "🪙",
+        "category": "Криптовалюты",
+        "description": "Новости криптовалют и блокчейна",
+        "hashtags": "#Криптовалюта #Биткоин #Блокчейн #Ethereum #DeFi",
+        "prompt": "Ты крипто-аналитик. Создай уникальный пост о криптовалютах, блокчейне, DeFi, трендах рынка, биткоине, альткоинах."
+    },
+    "web3": {
+        "name": "🌐 Web3",
+        "emoji": "🌐",
+        "category": "Криптовалюты",
+        "description": "Web3, децентрализация, блокчейн",
+        "hashtags": "#Web3 #Децентрализация #Блокчейн #DAO",
+        "prompt": "Ты эксперт по Web3. Создай уникальный пост о Web3 технологиях, децентрализации, DAO, будущем интернета."
+    },
+    "metaverse": {
+        "name": "🕶️ Метавселенная",
+        "emoji": "🕶️",
+        "category": "Технологии",
+        "description": "Метавселенные и виртуальная реальность",
+        "hashtags": "#Метавселенная #VR #AR #VirtualReality",
+        "prompt": "Ты эксперт по метавселенным. Создай уникальный пост о метавселенных, VR/AR технологиях, виртуальных мирах."
+    },
+    
+    # === БИЗНЕС И МАРКЕТИНГ ===
     "business": {
         "name": "💼 Бизнес",
         "emoji": "💼",
+        "category": "Бизнес",
         "description": "Бизнес новости и советы",
-        "hashtags": "#Бизнес #Стартап #Предпринимательство",
-        "prompt": "Ты бизнес-журналист. Создай уникальный пост о бизнесе, стартапах, инвестициях, успешных кейсах."
-    },
-    "tech": {
-        "name": "📡 Технологии",
-        "emoji": "📡",
-        "description": "Технологические новости",
-        "hashtags": "#Технологии #Гаджеты #Инновации",
-        "prompt": "Ты техноблогер. Создай уникальный пост о новых технологиях, гаджетах, изобретениях."
-    },
-    "science": {
-        "name": "🔬 Наука",
-        "emoji": "🔬",
-        "description": "Научные открытия",
-        "hashtags": "#Наука #Открытия #Исследования",
-        "prompt": "Ты научный журналист. Создай уникальный пост о научных открытиях и исследованиях."
-    },
-    "health": {
-        "name": "💊 Здоровье",
-        "emoji": "💊",
-        "description": "Здоровье и медицина",
-        "hashtags": "#Здоровье #Медицина #ЗОЖ",
-        "prompt": "Ты медицинский блогер. Создай уникальный полезный пост о здоровье."
-    },
-    "psychology": {
-        "name": "🧠 Психология",
-        "emoji": "🧠",
-        "description": "Психология и саморазвитие",
-        "hashtags": "#Психология #Саморазвитие #Мотивация",
-        "prompt": "Ты психолог. Создай уникальный полезный пост по психологии и саморазвитию."
+        "hashtags": "#Бизнес #Стартап #Предпринимательство #Успех",
+        "prompt": "Ты бизнес-журналист. Создай уникальный пост о бизнесе, стартапах, инвестициях, успешных кейсах, предпринимательстве."
     },
     "marketing": {
         "name": "📈 Маркетинг",
         "emoji": "📈",
+        "category": "Маркетинг",
         "description": "Маркетинг и SMM",
-        "hashtags": "#Маркетинг #SMM #Реклама",
-        "prompt": "Ты маркетолог. Создай уникальный пост о маркетинге, SMM, рекламе."
+        "hashtags": "#Маркетинг #SMM #Реклама #Таргет",
+        "prompt": "Ты маркетолог. Создай уникальный пост о маркетинге, SMM, рекламе, таргетинге, контент-маркетинге."
     },
-    "design": {
-        "name": "🎨 Дизайн",
-        "emoji": "🎨",
-        "description": "Дизайн и креатив",
-        "hashtags": "#Дизайн #Креатив #Вдохновение",
-        "prompt": "Ты дизайнер. Создай уникальный вдохновляющий пост о дизайне."
+    "startup": {
+        "name": "🚀 Стартапы",
+        "emoji": "🚀",
+        "category": "Бизнес",
+        "description": "Стартапы и инновации",
+        "hashtags": "#Стартап #Инновации #Венчур #Инвестиции",
+        "prompt": "Ты предприниматель. Создай уникальный пост о стартапах, инновациях, венчурных инвестициях, успешных запусках."
+    },
+    
+    # === НАУКА И ОБРАЗОВАНИЕ ===
+    "science": {
+        "name": "🔬 Наука",
+        "emoji": "🔬",
+        "category": "Наука",
+        "description": "Научные открытия",
+        "hashtags": "#Наука #Открытия #Исследования #Физика",
+        "prompt": "Ты научный журналист. Создай уникальный пост о научных открытиях и исследованиях."
+    },
+    "education": {
+        "name": "📚 Образование",
+        "emoji": "📚",
+        "category": "Образование",
+        "description": "Образование и обучение",
+        "hashtags": "#Образование #Учеба #Знания #Курсы",
+        "prompt": "Ты педагог. Создай уникальный полезный пост об образовании, обучении, полезных курсах."
+    },
+    "psychology": {
+        "name": "🧠 Психология",
+        "emoji": "🧠",
+        "category": "Психология",
+        "description": "Психология и саморазвитие",
+        "hashtags": "#Психология #Саморазвитие #Мотивация #ЛичностныйРост",
+        "prompt": "Ты психолог. Создай уникальный полезный пост по психологии и саморазвитию."
+    },
+    "motivation": {
+        "name": "💪 Мотивация",
+        "emoji": "💪",
+        "category": "Мотивация",
+        "description": "Мотивация и успех",
+        "hashtags": "#Мотивация #Успех #Вдохновение #Цели",
+        "prompt": "Ты мотивационный спикер. Создай уникальный вдохновляющий пост о достижении целей, успехе, мотивации."
+    },
+    
+    # === ЗДОРОВЬЕ И ЖИЗНЬ ===
+    "health": {
+        "name": "💊 Здоровье",
+        "emoji": "💊",
+        "category": "Здоровье",
+        "description": "Здоровье и медицина",
+        "hashtags": "#Здоровье #Медицина #ЗОЖ #Спорт",
+        "prompt": "Ты медицинский блогер. Создай уникальный полезный пост о здоровье, ЗОЖ, профилактике болезней."
+    },
+    "fitness": {
+        "name": "🏋️ Фитнес",
+        "emoji": "🏋️",
+        "category": "Спорт",
+        "description": "Фитнес и тренировки",
+        "hashtags": "#Фитнес #Тренировки #ЗОЖ #Спорт",
+        "prompt": "Ты фитнес-тренер. Создай уникальный пост о фитнесе, тренировках, правильном питании, здоровом образе жизни."
+    },
+    "food": {
+        "name": "🍳 Кулинария",
+        "emoji": "🍳",
+        "category": "Кулинария",
+        "description": "Кулинария и рецепты",
+        "hashtags": "#Кулинария #Рецепты #Еда #Вкусно",
+        "prompt": "Ты кулинарный блогер. Создай уникальный пост о еде, рецептах, кулинарных лайфхаках."
+    },
+    
+    # === ТЕХНОЛОГИИ ===
+    "tech": {
+        "name": "📡 Технологии",
+        "emoji": "📡",
+        "category": "Технологии",
+        "description": "Технологические новости",
+        "hashtags": "#Технологии #Гаджеты #Инновации #Tech",
+        "prompt": "Ты техноблогер. Создай уникальный пост о новых технологиях, гаджетах, изобретениях."
+    },
+    "gadgets": {
+        "name": "📱 Гаджеты",
+        "emoji": "📱",
+        "category": "Технологии",
+        "description": "Обзоры гаджетов",
+        "hashtags": "#Гаджеты #Смартфоны #Apple #Xiaomi #Samsung",
+        "prompt": "Ты обзорщик гаджетов. Создай уникальный пост о новых смартфонах, наушниках, умных устройствах."
     },
     "programming": {
         "name": "💻 Программирование",
         "emoji": "💻",
+        "category": "IT",
         "description": "IT и разработка",
-        "hashtags": "#Программирование #IT #Код",
-        "prompt": "Ты разработчик. Создай уникальный полезный пост о программировании."
+        "hashtags": "#Программирование #IT #Код #Python #JavaScript",
+        "prompt": "Ты разработчик. Создай уникальный полезный пост о программировании, языках кода, IT-карьере."
     },
+    "cybersecurity": {
+        "name": "🔒 Кибербезопасность",
+        "emoji": "🔒",
+        "category": "IT",
+        "description": "Кибербезопасность",
+        "hashtags": "#Кибербезопасность #Безопасность #VPN #Хакеры",
+        "prompt": "Ты эксперт по кибербезопасности. Создай уникальный пост о безопасности в интернете, защите данных, VPN."
+    },
+    
+    # === РАЗВЛЕЧЕНИЯ ===
     "gaming": {
         "name": "🎮 Игры",
         "emoji": "🎮",
+        "category": "Игры",
         "description": "Игровые новости",
-        "hashtags": "#Игры #Гейминг #Видеоигры",
-        "prompt": "Ты игровой журналист. Создай уникальный пост об играх и гейминге."
+        "hashtags": "#Игры #Гейминг #Видеоигры #PS5 #Xbox",
+        "prompt": "Ты игровой журналист. Создай уникальный пост об играх, гейминге, новинках игр."
     },
     "movies": {
         "name": "🎬 Кино",
         "emoji": "🎬",
+        "category": "Развлечения",
         "description": "Новости кино",
-        "hashtags": "#Кино #Фильмы #Сериалы",
+        "hashtags": "#Кино #Фильмы #Сериалы #Кинопремьеры",
         "prompt": "Ты кинокритик. Создай уникальный пост о новинках кино и сериалов."
     },
     "music": {
         "name": "🎵 Музыка",
         "emoji": "🎵",
+        "category": "Развлечения",
         "description": "Музыкальные новости",
-        "hashtags": "#Музыка #НовинкиМузыки #Хиты",
-        "prompt": "Ты музыкальный обозреватель. Создай уникальный пост о музыке."
+        "hashtags": "#Музыка #НовинкиМузыки #Хиты #Плейлист",
+        "prompt": "Ты музыкальный обозреватель. Создай уникальный пост о музыке, новых альбомах, плейлистах."
     },
+    "anime": {
+        "name": "🎌 Аниме",
+        "emoji": "🎌",
+        "category": "Развлечения",
+        "description": "Новости аниме",
+        "hashtags": "#Аниме #Anime #Манга #Косплей",
+        "prompt": "Ты аниме-блогер. Создай уникальный пост о популярных аниме, новостях аниме-индустрии, манге."
+    },
+    
+    # === СПОРТ ===
     "sport": {
         "name": "⚽ Спорт",
         "emoji": "⚽",
+        "category": "Спорт",
         "description": "Спортивные новости",
-        "hashtags": "#Спорт #Футбол #Баскетбол",
-        "prompt": "Ты спортивный журналист. Создай уникальный пост о спорте."
+        "hashtags": "#Спорт #Футбол #Баскетбол #Теннис #UFC",
+        "prompt": "Ты спортивный журналист. Создай уникальный пост о спорте, футболе, баскетболе, теннисе."
     },
+    "football": {
+        "name": "⚽ Футбол",
+        "emoji": "⚽",
+        "category": "Спорт",
+        "description": "Футбольные новости",
+        "hashtags": "#Футбол #UCL #ЛигаЧемпионов #РеалМадрид #Месси",
+        "prompt": "Ты футбольный журналист. Создай уникальный пост о футболе, чемпионатах, трансферах, матчах."
+    },
+    
+    # === ПУТЕШЕСТВИЯ ===
     "travel": {
         "name": "✈️ Путешествия",
         "emoji": "✈️",
+        "category": "Путешествия",
         "description": "Путешествия и туризм",
-        "hashtags": "#Путешествия #Туризм #Отдых",
-        "prompt": "Ты тревел-блогер. Создай уникальный пост о путешествиях."
+        "hashtags": "#Путешествия #Туризм #Отдых #Тревел",
+        "prompt": "Ты тревел-блогер. Создай уникальный пост о путешествиях, туризме, лучших местах для отдыха."
     },
-    "food": {
-        "name": "🍳 Кулинария",
-        "emoji": "🍳",
-        "description": "Кулинария и рецепты",
-        "hashtags": "#Кулинария #Рецепты #Еда",
-        "prompt": "Ты кулинарный блогер. Создай уникальный пост о еде и рецептах."
+    "photography": {
+        "name": "📷 Фотография",
+        "emoji": "📷",
+        "category": "Искусство",
+        "description": "Фотография и искусство",
+        "hashtags": "#Фотография #Фото #Искусство #Пленка",
+        "prompt": "Ты фотограф. Создай уникальный пост о фотографии, советах по съемке, искусстве."
     },
-    "education": {
-        "name": "📚 Образование",
-        "emoji": "📚",
-        "description": "Образование и обучение",
-        "hashtags": "#Образование #Учеба #Знания",
-        "prompt": "Ты педагог. Создай уникальный полезный пост об образовании."
+    
+    # === ДИЗАЙН И ТВОРЧЕСТВО ===
+    "design": {
+        "name": "🎨 Дизайн",
+        "emoji": "🎨",
+        "category": "Дизайн",
+        "description": "Дизайн и креатив",
+        "hashtags": "#Дизайн #Креатив #Вдохновение #UIUX",
+        "prompt": "Ты дизайнер. Создай уникальный вдохновляющий пост о дизайне, графике, UI/UX."
     },
-    "motivation": {
-        "name": "💪 Мотивация",
-        "emoji": "💪",
-        "description": "Мотивация и успех",
-        "hashtags": "#Мотивация #Успех #Вдохновение",
-        "prompt": "Ты мотивационный спикер. Создай уникальный вдохновляющий пост."
+    
+    # === АВТО ===
+    "auto": {
+        "name": "🚗 Авто",
+        "emoji": "🚗",
+        "category": "Авто",
+        "description": "Автомобили и новинки",
+        "hashtags": "#Авто #Машины #Электромобили #Тесла",
+        "prompt": "Ты автомобильный блогер. Создай уникальный пост об автомобилях, новинках автопрома, электромобилях."
+    },
+    "tesla": {
+        "name": "🔋 Tesla",
+        "emoji": "🔋",
+        "category": "Авто",
+        "description": "Новости Tesla и электромобили",
+        "hashtags": "#Tesla #Электромобили #ИлонМаск #Cybertruck",
+        "prompt": "Ты эксперт по Tesla. Создай уникальный пост о Tesla, Илоне Маске, электромобилях, инновациях."
     }
 }
 
@@ -375,14 +502,22 @@ class PostingBot:
         
         prompt = f"""{theme_config['prompt']}
 
-ВАЖНО: Создай УНИКАЛЬНЫЙ пост, который не похож на предыдущие.
+ВАЖНО: Создай УНИКАЛЬНЫЙ, ИНТЕРЕСНЫЙ пост, который привлечет внимание читателей.
 
-Требования:
+Требования к посту:
 - Длина: примерно {size_config['chars']} символов
-- Используй красивые эмодзи для оформления
-- Добавь в конце: {theme_config['hashtags']}
+- Используй красивые эмодзи для оформления (минимум 5-7 разных эмодзи)
+- Добавь в конце хэштеги: {theme_config['hashtags']}
 - Пиши на русском языке, интересно и вовлекающе
-- Добавь вопрос к подписчикам для комментариев"""
+- Добавь вопрос к подписчикам в конце поста для комментариев
+- Пост должен быть полезным, информативным или вдохновляющим
+- Используй маркированные списки где уместно
+
+Структура поста:
+1. Яркий привлекающий заголовок с эмодзи
+2. Основной полезный контент (разбитый на абзацы)
+3. Вопрос к аудитории или призыв к действию
+4. Хэштеги"""
 
         if not token:
             return self._get_fallback_post(theme)
@@ -399,16 +534,19 @@ class PostingBot:
                         "model": "GigaChat",
                         "messages": [{"role": "user", "content": prompt}],
                         "temperature": 0.9,
-                        "max_tokens": 2000
+                        "max_tokens": 2500
                     },
                     ssl=False,
-                    timeout=aiohttp.ClientTimeout(total=60)
+                    timeout=aiohttp.ClientTimeout(total=90)
                 ) as response:
                     if response.status == 200:
                         data = await response.json()
                         if "choices" in data:
                             content = data["choices"][0]["message"]["content"]
                             return content
+                    elif response.status == 401:
+                        self.api_token = None
+                        return await self.generate_post(theme, size)
         except Exception as e:
             logger.error(f"Ошибка генерации: {e}")
         
@@ -416,10 +554,13 @@ class PostingBot:
     
     def _get_fallback_post(self, theme: str) -> str:
         fallbacks = {
-            "ai_news": f"🤖 *Новости искусственного интеллекта!*\n\nИИ продолжает удивлять мир новыми возможностями. Какие технологии будущего вас впечатляют?\n\n👇 Делитесь мнением!\n\n{POSTING_THEMES['ai_news']['hashtags']}",
-            "crypto": f"🪙 *Криптовалюты на подъеме!*\n\nРынок криптовалют активно развивается. А вы инвестируете в крипту?\n\n👇 Расскажите в комментариях!\n\n{POSTING_THEMES['crypto']['hashtags']}",
+            "ai_news": "🤖 *Искусственный интеллект меняет мир!*\n\nКаждый день появляются новые нейросети и AI-инструменты. Как вы относитесь к развитию ИИ? Делитесь мнением!\n\n👇\n\n#AI #Нейросети #Технологии",
+            "telegram": "📱 *Telegram - лучший мессенджер!*\n\nА вы знали все скрытые функции Telegram? Расскажите в комментариях, какие боты и каналы вы используете!\n\n👇\n\n#Telegram #СекретыTelegram #Боты",
+            "nft": "🎨 *NFT - цифровое искусство будущего!*\n\nКоллекционируете ли вы NFT? Какая ваша любимая коллекция? Пишите в комментариях!\n\n👇\n\n#NFT #ЦифровоеИскусство #Крипта",
+            "crypto": "🪙 *Криптовалюта - новый тренд!*\n\nБиткоин снова растет! А вы инвестируете в крипту? Делитесь своим опытом!\n\n👇\n\n#Биткоин #Криптовалюта #Инвестиции",
+            "programming": "💻 *Программирование - навык будущего!*\n\nКакой язык программирования вы учите или используете? Что посоветуете новичкам?\n\n👇\n\n#Программирование #Код #IT"
         }
-        return fallbacks.get(theme, f"✨ *{POSTING_THEMES[theme]['name']}*\n\nИнтересный пост! А что вы думаете по этой теме?\n\n👇 Ваше мнение в комментариях!\n\n{POSTING_THEMES[theme]['hashtags']}")
+        return fallbacks.get(theme, f"✨ *{POSTING_THEMES[theme]['name']}*\n\nИнтересная тема для обсуждения! А что вы думаете по этому поводу?\n\n👇 Делитесь мнением в комментариях!\n\n{POSTING_THEMES[theme]['hashtags']}")
     
     async def format_and_send_post(self, context: ContextTypes.DEFAULT_TYPE, channel_id: str, 
                                     theme: str, size: str, is_auto: bool = False) -> bool:
@@ -437,9 +578,9 @@ class PostingBot:
 {content}
 
 ━━━━━━━━━━━━━━━━━━━━━
-📅 {timestamp} | #{self.post_counter}
-💬 Ждем ваши комментарии! 
-🚀 Пост создан с помощью AI
+📅 {timestamp} | 📊 Пост #{self.post_counter}
+💬 Ждем ваши комментарии!
+🚀 Создано с любовью ❤️
 ━━━━━━━━━━━━━━━━━━━━━"""
             
             await context.bot.send_message(
@@ -456,7 +597,7 @@ class PostingBot:
                         break
             
             self.save_data()
-            logger.info(f"✅ Пост отправлен в канал {channel_id}")
+            logger.info(f"✅ Пост отправлен в канал {channel_id} на тему {theme}")
             return True
             
         except Exception as e:
@@ -480,6 +621,16 @@ async def get_main_keyboard():
     ]
     return InlineKeyboardMarkup(keyboard)
 
+async def get_themes_by_category():
+    """Группировка тем по категориям"""
+    categories = {}
+    for key, theme in POSTING_THEMES.items():
+        cat = theme.get("category", "Другое")
+        if cat not in categories:
+            categories[cat] = []
+        categories[cat].append((key, theme))
+    return categories
+
 async def get_themes_keyboard(page: int = 0):
     themes_list = list(POSTING_THEMES.items())
     per_page = 10
@@ -501,7 +652,52 @@ async def get_themes_keyboard(page: int = 0):
     if nav_buttons:
         keyboard.append(nav_buttons)
     
+    keyboard.append([InlineKeyboardButton("📂 По категориям", callback_data="themes_categories")])
     keyboard.append([InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu")])
+    return InlineKeyboardMarkup(keyboard)
+
+async def get_categories_keyboard():
+    categories = await get_themes_by_category()
+    keyboard = []
+    for category in categories.keys():
+        emoji_map = {
+            "Технологии": "📡",
+            "Криптовалюты": "🪙",
+            "Бизнес": "💼",
+            "Маркетинг": "📈",
+            "Наука": "🔬",
+            "Образование": "📚",
+            "Психология": "🧠",
+            "Мотивация": "💪",
+            "Здоровье": "💊",
+            "Спорт": "⚽",
+            "Кулинария": "🍳",
+            "IT": "💻",
+            "Игры": "🎮",
+            "Развлечения": "🎬",
+            "Путешествия": "✈️",
+            "Искусство": "🎨",
+            "Дизайн": "🎨",
+            "Авто": "🚗",
+            "Соцсети": "📱",
+            "Другое": "📌"
+        }
+        emoji = emoji_map.get(category, "📌")
+        keyboard.append([InlineKeyboardButton(f"{emoji} {category}", callback_data=f"category_{category}")])
+    keyboard.append([InlineKeyboardButton("🔙 Назад к темам", callback_data="back_to_themes")])
+    return InlineKeyboardMarkup(keyboard)
+
+async def get_themes_by_category_keyboard(category: str):
+    categories = await get_themes_by_category()
+    themes = categories.get(category, [])
+    
+    keyboard = []
+    for theme_key, theme in themes:
+        keyboard.append([InlineKeyboardButton(
+            f"{theme['emoji']} {theme['name']}",
+            callback_data=f"theme_{theme_key}"
+        )])
+    keyboard.append([InlineKeyboardButton("🔙 Назад к категориям", callback_data="themes_categories")])
     return InlineKeyboardMarkup(keyboard)
 
 async def get_sizes_keyboard():
@@ -549,18 +745,25 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 🤖 *AI Бот для автопостинга*
 
 🎯 *Мои возможности:*
-• 📝 Генерация уникальных постов через ИИ
-• 🎨 20 разных тематик на выбор
+• 📝 Генерация уникальных постов через ИИ (GigaChat)
+• 🎨 *30+ разных тематик* на выбор!
 • ⏱ Автопостинг от 10 секунд!
 • 📏 5 размеров постов
 • 💰 *ВСЕ ТАРИФЫ БЕСПЛАТНЫЕ!*
 
 ━━━━━━━━━━━━━━━━━━━━━
-📌 *Как добавить канал:*
-1️⃣ Нажмите «📢 Добавить канал»
-2️⃣ Отправьте ССЫЛКУ на канал
-   Пример: https://t.me/username
-3️⃣ Бот сам проверит и добавит
+📌 *Доступные темы (30+):*
+
+🤖 Новости AI | 📱 Telegram | 🎨 NFT
+🪙 Криптовалюты | 🌐 Web3 | 🕶️ Метавселенная
+💼 Бизнес | 📈 Маркетинг | 🚀 Стартапы
+🔬 Наука | 📚 Образование | 🧠 Психология
+💪 Мотивация | 💊 Здоровье | 🏋️ Фитнес
+🍳 Кулинария | 📡 Технологии | 📱 Гаджеты
+💻 Программирование | 🔒 Кибербезопасность
+🎮 Игры | 🎬 Кино | 🎵 Музыка | 🎌 Аниме
+⚽ Спорт | ✈️ Путешествия | 📷 Фотография
+🎨 Дизайн | 🚗 Авто | 🔋 Tesla
 
 ━━━━━━━━━━━━━━━━━━━━━
 👇 *Выберите действие ниже:*"""
@@ -591,7 +794,6 @@ async def add_channel_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def extract_username_from_link(text: str) -> str:
     """Извлекает username из ссылки"""
-    # Паттерны для ссылок
     patterns = [
         r'(?:https?://)?(?:www\.)?t\.me/([a-zA-Z0-9_]+)',
         r'(?:https?://)?(?:www\.)?telegram\.me/([a-zA-Z0-9_]+)',
@@ -612,7 +814,6 @@ async def handle_channel_link(update: Update, context: ContextTypes.DEFAULT_TYPE
     user_id = update.effective_user.id
     text = update.message.text.strip()
     
-    # Извлекаем username из ссылки
     username = await extract_username_from_link(text)
     
     if not username:
@@ -626,9 +827,7 @@ async def handle_channel_link(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return
     
-    # Получаем информацию о канале
     try:
-        # Пробуем получить канал по username
         chat = await context.bot.get_chat(f"@{username}")
         
         if chat.type not in ['channel', 'supergroup']:
@@ -642,7 +841,6 @@ async def handle_channel_link(update: Update, context: ContextTypes.DEFAULT_TYPE
         channel_id = str(chat.id)
         channel_name = chat.title
         
-        # Проверяем, является ли бот администратором
         try:
             bot_member = await context.bot.get_chat_member(
                 chat_id=channel_id, 
@@ -670,11 +868,9 @@ async def handle_channel_link(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
             return
         
-        # Добавляем канал
         sub = bot.get_user_subscription(user_id)
         tariff = TARIFFS[sub.tariff]
         
-        # Проверка лимита
         if len(sub.channels) >= tariff["channels"]:
             await update.message.reply_text(
                 f"❌ *Лимит каналов достигнут!*\n\n"
@@ -686,7 +882,6 @@ async def handle_channel_link(update: Update, context: ContextTypes.DEFAULT_TYPE
             context.user_data['awaiting_channel_link'] = False
             return
         
-        # Проверяем, не добавлен ли уже канал
         for ch in sub.channels:
             if ch.get('id') == channel_id:
                 await update.message.reply_text(
@@ -698,7 +893,6 @@ async def handle_channel_link(update: Update, context: ContextTypes.DEFAULT_TYPE
                 context.user_data['awaiting_channel_link'] = False
                 return
         
-        # Добавляем канал
         sub.channels.append({
             "id": channel_id,
             "name": channel_name,
@@ -716,7 +910,7 @@ async def handle_channel_link(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"📊 *Ваши каналы:* {len(sub.channels)}/{tariff['channels']}\n\n"
             f"🎯 *Что дальше?*\n"
             f"• Нажмите *«Настройка автопостинга»*\n"
-            f"• Выберите тему и размер постов\n"
+            f"• Выберите тему из 30+ вариантов!\n"
             f"• Установите интервал публикации\n\n"
             f"━━━━━━━━━━━━━━━━━━━━━",
             parse_mode='Markdown'
@@ -729,8 +923,7 @@ async def handle_channel_link(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"Проверьте:\n"
             f"• Существует ли канал t.me/{username}\n"
             f"• Публичная ли ссылка на канал\n"
-            f"• Правильно ли вы ввели ссылку\n\n"
-            f"Попробуйте снова:",
+            f"• Правильно ли вы ввели ссылку",
             parse_mode='Markdown'
         )
         return
@@ -818,7 +1011,7 @@ async def configure_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text += "⚠️ *Автопостинг не настроен*\n\n"
     
     keyboard = [
-        [InlineKeyboardButton("🎨 Выбрать тему", callback_data=f"set_theme_{channel_id}")],
+        [InlineKeyboardButton("🎨 Выбрать тему (30+ тем)", callback_data=f"set_theme_{channel_id}")],
         [InlineKeyboardButton("📏 Выбрать размер", callback_data=f"set_size_{channel_id}")],
         [InlineKeyboardButton("⏱ Выбрать интервал", callback_data=f"set_interval_{channel_id}")],
     ]
@@ -840,12 +1033,22 @@ async def set_channel_theme(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     channel_id = query.data.replace("set_theme_", "")
     context.user_data['temp_channel_id'] = channel_id
-    keyboard = await get_themes_keyboard()
     await query.edit_message_text(
-        "🎨 *Выберите тему для автопостинга:*\n\n"
-        "Тема влияет на содержание и стиль постов",
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "🎨 *ВЫБОР ТЕМЫ*\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "📌 *Доступно 30+ тем:*\n"
+        "• 🤖 Новости AI\n"
+        "• 📱 Telegram\n"
+        "• 🎨 NFT\n"
+        "• 🪙 Криптовалюты\n"
+        "• 🌐 Web3\n"
+        "• 💼 Бизнес\n"
+        "• 🚀 Стартапы\n"
+        "• И многие другие!\n\n"
+        "👇 *Выберите тему ниже:*",
         parse_mode='Markdown',
-        reply_markup=keyboard
+        reply_markup=await get_themes_keyboard()
     )
 
 async def set_channel_size(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -872,7 +1075,8 @@ async def set_channel_interval(update: Update, context: ContextTypes.DEFAULT_TYP
     await query.edit_message_text(
         "⏱ *Выберите интервал публикации:*\n\n"
         "Посты будут публиковаться автоматически\n"
-        "с выбранным промежутком времени",
+        "с выбранным промежутком времени\n\n"
+        "✨ *Минимальный интервал:* 10 секунд",
         parse_mode='Markdown',
         reply_markup=keyboard
     )
@@ -905,10 +1109,15 @@ async def handle_theme_selection(update: Update, context: ContextTypes.DEFAULT_T
     
     bot.save_data()
     
+    theme_config = POSTING_THEMES[theme]
     await query.edit_message_text(
-        f"✅ *Тема выбрана!*\n\n"
-        f"{POSTING_THEMES[theme]['emoji']} {POSTING_THEMES[theme]['name']}\n\n"
-        f"📝 *Описание:* {POSTING_THEMES[theme]['description']}\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"✅ *ТЕМА ВЫБРАНА!*\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"{theme_config['emoji']} *{theme_config['name']}*\n"
+        f"📂 Категория: {theme_config.get('category', 'Другое')}\n\n"
+        f"📝 *Описание:* {theme_config['description']}\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
         f"Теперь выберите размер поста:",
         parse_mode='Markdown',
         reply_markup=await get_sizes_keyboard()
@@ -946,7 +1155,7 @@ async def handle_size_selection(update: Update, context: ContextTypes.DEFAULT_TY
         f"✅ *Размер выбран!*\n\n"
         f"{POST_SIZES[size]['emoji']} {POST_SIZES[size]['name']}\n"
         f"📏 Длина: ~{POST_SIZES[size]['chars']} символов\n\n"
-        f"Теперь выберите интервал публикации:",
+        f"📊 Осталось выбрать интервал публикации!",
         parse_mode='Markdown',
         reply_markup=await get_intervals_keyboard()
     )
@@ -1006,7 +1215,6 @@ async def handle_interval_selection(update: Update, context: ContextTypes.DEFAUL
     sub.auto_posts[channel_id].is_active = True
     sub.auto_posts[channel_id].last_post = time.time()
     
-    # Обновляем имя канала
     for ch in sub.channels:
         if ch.get('id') == channel_id:
             sub.auto_posts[channel_id].channel_name = ch.get('name', '')
@@ -1014,8 +1222,6 @@ async def handle_interval_selection(update: Update, context: ContextTypes.DEFAUL
             break
     
     bot.save_data()
-    
-    # Запускаем автопостинг
     await start_auto_posting(context, user_id, channel_id)
     
     if interval < 60:
@@ -1025,22 +1231,24 @@ async def handle_interval_selection(update: Update, context: ContextTypes.DEFAUL
     else:
         interval_text = f"{interval//3600} ч"
     
+    theme_config = POSTING_THEMES[sub.auto_posts[channel_id].theme]
+    
     await query.edit_message_text(
         f"━━━━━━━━━━━━━━━━━━━━━\n"
         f"🎉 *АВТОПОСТИНГ НАСТРОЕН!*\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"✅ *Параметры:*\n"
-        f"🎨 Тема: {POSTING_THEMES[sub.auto_posts[channel_id].theme]['name']}\n"
+        f"🎨 Тема: {theme_config['emoji']} {theme_config['name']}\n"
         f"📏 Размер: {POST_SIZES[sub.auto_posts[channel_id].size]['name']}\n"
         f"⏱ Интервал: {interval_text}\n\n"
         f"🤖 Бот будет автоматически публиковать посты!\n"
         f"🔄 Статус: АКТИВЕН\n\n"
+        f"📊 *30+ тем доступны!*\n"
         f"━━━━━━━━━━━━━━━━━━━━━",
         parse_mode='Markdown'
     )
 
 async def start_auto_posting(context: ContextTypes.DEFAULT_TYPE, user_id: int, channel_id: str):
-    """Запуск автопостинга для канала"""
     sub = bot.get_user_subscription(user_id)
     
     if channel_id not in sub.auto_posts:
@@ -1147,7 +1355,6 @@ async def random_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     if not sub.can_post():
-        remaining = TARIFFS[sub.tariff]["posts_per_day"] - sub.posts_today
         await query.edit_message_text(
             f"⚠️ *Лимит постов на сегодня исчерпан!*\n\n"
             f"📊 Осталось: 0/{TARIFFS[sub.tariff]['posts_per_day']}",
@@ -1159,10 +1366,10 @@ async def random_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
     random_size = random.choice(list(POST_SIZES.keys()))
     
     await query.edit_message_text(
-        f"🎲 *Генерация поста...*\n\n"
+        f"🎲 *Генерация случайного поста...*\n\n"
         f"🎨 Тема: {POSTING_THEMES[random_theme]['emoji']} {POSTING_THEMES[random_theme]['name']}\n"
         f"📏 Размер: {POST_SIZES[random_size]['name']}\n\n"
-        f"⏳ Пожалуйста, подождите...",
+        f"⏳ Генерирую уникальный контент через ИИ...",
         parse_mode='Markdown'
     )
     
@@ -1171,7 +1378,8 @@ async def random_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if success:
         await query.edit_message_text(
             f"✅ *Пост успешно опубликован!*\n\n"
-            f"📊 Осталось постов сегодня: {sub.get_remaining_posts() - 1}",
+            f"📊 Осталось постов сегодня: {sub.get_remaining_posts() - 1}\n"
+            f"🎨 Всего доступно тем: {len(POSTING_THEMES)}",
             parse_mode='Markdown'
         )
     else:
@@ -1223,6 +1431,7 @@ async def my_channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text += f"━━━━━━━━━━━━━━━━━━━━━\n"
     text += f"📊 Лимит каналов: {len(sub.channels)}/{tariff['channels']}\n"
     text += f"📝 Постов сегодня: {sub.posts_today}/{tariff['posts_per_day']}\n"
+    text += f"🎨 Доступно тем: {len(POSTING_THEMES)}\n"
     text += f"━━━━━━━━━━━━━━━━━━━━━"
     
     keyboard = []
@@ -1274,6 +1483,11 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ⏱ Мин. интервал: {tariff['interval_min']} сек
 
 ━━━━━━━━━━━━━━━━━━━━━
+🎨 *ТЕМЫ*
+📚 Всего тем: {len(POSTING_THEMES)}
+📂 Категорий: 15+
+
+━━━━━━━━━━━━━━━━━━━━━
 ✨ *Все тарифы БЕСПЛАТНЫЕ!*
 ━━━━━━━━━━━━━━━━━━━━━"""
     
@@ -1292,24 +1506,29 @@ async def tariffs(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ├ 📢 Каналов: 5
 ├ 📝 Постов/день: 100
 ├ ⏱ Мин. интервал: 10 сек
+└ 🎨 Доступно тем: 30+
 
 ⭐ *СТАНДАРТ* - 0₽  
 ├ 📢 Каналов: 15
 ├ 📝 Постов/день: 500
 ├ ⏱ Мин. интервал: 5 сек
+└ 🎨 Доступно тем: 30+
 
 💎 *ПРОФЕССИОНАЛЬНЫЙ* - 0₽
 ├ 📢 Каналов: 50
 ├ 📝 Постов/день: 1500
 ├ ⏱ Мин. интервал: 3 сек
+└ 🎨 Доступно тем: 30+
 
 👑 *ПРЕМИУМ* - 0₽
 ├ 📢 Каналов: 200
 ├ 📝 Постов/день: 5000
 ├ ⏱ Мин. интервал: 1 сек
+└ 🎨 Доступно тем: 30+
 
 ━━━━━━━━━━━━━━━━━━━━━
 ✨ *ВСЕ ФУНКЦИИ ДОСТУПНЫ!*
+🎯 30+ уникальных тем для постов
 ━━━━━━━━━━━━━━━━━━━━━"""
     
     keyboard = [[InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu")]]
@@ -1340,16 +1559,40 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 1. Нажмите «🤖 Настройка автопостинга»
 2. Выберите канал
-3. Выберите ТЕМУ, РАЗМЕР, ИНТЕРВАЛ
-4. Автопостинг запустится автоматически!
+3. Выберите ТЕМУ из 30+
+4. Выберите РАЗМЕР поста
+5. Установите ИНТЕРВАЛ
+6. Автопостинг запустится автоматически!
 
 ━━━━━━━━━━━━━━━━━━━━━
-💡 *ДОСТУПНЫЕ ТЕМЫ (20):*
-AI, Крипта, NFT, Telegram, Бизнес,
-Технологии, Наука, Здоровье, Психология,
-Маркетинг, Дизайн, IT, Игры, Кино,
-Музыка, Спорт, Путешествия, Кулинария,
-Образование, Мотивация
+🎨 *ДОСТУПНЫЕ ТЕМЫ (30+):*
+
+🤖 Новости AI
+📱 Telegram  
+🎨 NFT
+🪙 Криптовалюты
+🌐 Web3
+💼 Бизнес
+📈 Маркетинг
+🚀 Стартапы
+🔬 Наука
+📚 Образование
+🧠 Психология
+💪 Мотивация
+💊 Здоровье
+🏋️ Фитнес
+🍳 Кулинария
+📡 Технологии
+💻 Программирование
+🎮 Игры
+🎬 Кино
+🎵 Музыка
+⚽ Спорт
+✈️ Путешествия
+📷 Фотография
+🎨 Дизайн
+🚗 Авто
+...и еще 10+ тем!
 
 ━━━━━━━━━━━━━━━━━━━━━
 ✨ *ВСЕ ТАРИФЫ БЕСПЛАТНЫЕ!*
@@ -1413,7 +1656,8 @@ async def handle_custom_interval(update: Update, context: ContextTypes.DEFAULT_T
         await update.message.reply_text(
             f"✅ *Интервал установлен!*\n\n"
             f"⏱ Интервал: {interval_text}\n"
-            f"🤖 Автопостинг АКТИВЕН",
+            f"🤖 Автопостинг АКТИВЕН\n"
+            f"🎨 Доступно 30+ тем для постов!",
             parse_mode='Markdown'
         )
         
@@ -1440,13 +1684,41 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await auto_posting_menu(update, context)
     elif data == "select_theme":
         await query.edit_message_text(
-            "🎨 *Выберите тему:*\n\nТема влияет на содержание постов",
+            "━━━━━━━━━━━━━━━━━━━━━\n"
+            "🎨 *ВЫБОР ТЕМЫ*\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"📚 *Доступно {len(POSTING_THEMES)} тем!*\n\n"
+            "👇 *Выберите тему ниже:*",
             parse_mode='Markdown',
             reply_markup=await get_themes_keyboard()
         )
+    elif data == "themes_categories":
+        await query.edit_message_text(
+            "📂 *ВЫБОР ПО КАТЕГОРИЯМ*\n\n"
+            "Выберите категорию:",
+            parse_mode='Markdown',
+            reply_markup=await get_categories_keyboard()
+        )
+    elif data == "back_to_themes":
+        await query.edit_message_text(
+            "🎨 *ВЫБОР ТЕМЫ*\n\n"
+            f"📚 *Доступно {len(POSTING_THEMES)} тем!*\n\n"
+            "👇 *Выберите тему:*",
+            parse_mode='Markdown',
+            reply_markup=await get_themes_keyboard()
+        )
+    elif data.startswith("category_"):
+        category = data.replace("category_", "")
+        await query.edit_message_text(
+            f"📂 *Категория: {category}*\n\n"
+            f"👇 *Выберите тему:*",
+            parse_mode='Markdown',
+            reply_markup=await get_themes_by_category_keyboard(category)
+        )
     elif data == "select_size":
         await query.edit_message_text(
-            "📏 *Выберите размер поста:*\n\nРазмер влияет на длину текста",
+            "📏 *Выберите размер поста:*\n\n"
+            "Размер влияет на длину текста",
             parse_mode='Markdown',
             reply_markup=await get_sizes_keyboard()
         )
@@ -1508,7 +1780,8 @@ def main():
     logger.info(f"📊 Доступно тем: {len(POSTING_THEMES)}")
     logger.info("💰 ВСЕ ТАРИФЫ БЕСПЛАТНЫЕ!")
     logger.info("⏱ Интервалы от 10 секунд!")
-    logger.info("🔗 Добавление каналов ТОЛЬКО по ссылке!")
+    logger.info("🔗 Добавление каналов только по ссылке!")
+    logger.info("🎨 30+ уникальных тем для контента!")
     
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
