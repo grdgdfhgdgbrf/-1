@@ -284,7 +284,7 @@ class PostingBot:
     
     def load_data(self):
         try:
-            with open("subscriptions.json", "r", encoding="utf-8") as f:
+            with open("subscriptions.json", "r") as f:
                 data = json.load(f)
                 for user_id, sub_data in data.items():
                     user_id = int(user_id)
@@ -299,7 +299,7 @@ class PostingBot:
                         sub.auto_posts[ch_id] = AutoPostConfig(**cfg_data)
                     self.user_subscriptions[user_id] = sub
         except FileNotFoundError:
-            logger.info("Файл subscriptions.json не найден, создаю новый")
+            logger.info("Файл subscriptions.json не найден, создаем новый")
         except Exception as e:
             logger.error(f"Ошибка загрузки данных: {e}")
     
@@ -325,7 +325,7 @@ class PostingBot:
                     "last_reset": sub.last_reset,
                     "auto_posts": auto_posts
                 }
-            with open("subscriptions.json", "w", encoding="utf-8") as f:
+            with open("subscriptions.json", "w") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
         except Exception as e:
             logger.error(f"Ошибка сохранения данных: {e}")
@@ -520,7 +520,7 @@ async def get_sizes_keyboard():
             f"{size['emoji']} {size['name']} (~{size['chars']} симв.)",
             callback_data=f"size_{size_key}"
         )])
-    keyboard.append([InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu")])
+    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="main_menu")])
     return InlineKeyboardMarkup(keyboard)
 
 async def get_intervals_keyboard():
@@ -546,49 +546,8 @@ async def get_intervals_keyboard():
     keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="auto_posting")])
     return InlineKeyboardMarkup(keyboard)
 
-# ==================== АВТОПОСТИНГ ====================
-async def start_auto_posting(context: ContextTypes.DEFAULT_TYPE, user_id: int, channel_id: str):
-    sub = bot.get_user_subscription(user_id)
-    
-    if channel_id not in sub.auto_posts:
-        return
-    
-    config = sub.auto_posts[channel_id]
-    if not config.is_active or config.job_running:
-        return
-    
-    config.job_running = True
-    
-    async def post_loop():
-        while config.is_active and channel_id in sub.auto_posts:
-            try:
-                current_time = time.time()
-                time_since_last = current_time - config.last_post
-                
-                if time_since_last >= config.interval_seconds:
-                    if sub.can_post():
-                        success = await bot.format_and_send_post(
-                            context, channel_id, config.theme, config.size, is_auto=True
-                        )
-                        if success:
-                            config.last_post = current_time
-                            sub.add_post()
-                            bot.save_data()
-                            logger.info(f"🔄 Автопостинг: канал {channel_id}")
-                    else:
-                        logger.warning(f"⚠️ Лимит постов для {user_id}")
-                
-                await asyncio.sleep(min(config.interval_seconds, 30))
-                
-            except Exception as e:
-                logger.error(f"Ошибка автопостинга: {e}")
-                await asyncio.sleep(60)
-    
-    task = asyncio.create_task(post_loop())
-    bot.active_jobs[f"{user_id}_{channel_id}"] = task
-
 # ==================== ОБРАБОТЧИКИ ====================
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     bot.load_data()
     
@@ -622,20 +581,21 @@ async def add_channel_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "━━━━━━━━━━━━━━━━━━━━━\n\n"
         "📌 *Инструкция:*\n\n"
         "1️⃣ *Добавьте бота в канал*\n"
-        "   → Откройте ваш канал\n"
-        "   → Нажмите «Управление» → «Администраторы»\n"
-        "   → Добавьте бота `@AI_Posting_Bot`\n\n"
-        "2️⃣ *Перешлите сообщение*\n"
-        "   → Перешлите ЛЮБОЕ сообщение из канала СЮДА\n\n"
+        "   Как АДМИНИСТРАТОРА!\n\n"
+        "2️⃣ *Перешлите ЛЮБОЕ сообщение*\n"
+        "   Из канала СЮДА\n\n"
         "3️⃣ *Или отправьте ID канала:*\n"
-        "   → `@username` или `-100xxxxxx`\n\n"
-        "✅ *После добавления продолжите настройку!*\n\n"
+        "   @username или -100xxxxxx\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "✅ *После добавления* вы сможете\n"
+        "настроить автопостинг!\n"
         "━━━━━━━━━━━━━━━━━━━━━",
         parse_mode='Markdown'
     )
     context.user_data['awaiting_channel'] = True
 
-async def handle_channel_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_channel_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка сообщений для добавления канала"""
     if not context.user_data.get('awaiting_channel'):
         return
     
@@ -643,13 +603,13 @@ async def handle_channel_add(update: Update, context: ContextTypes.DEFAULT_TYPE)
     sub = bot.get_user_subscription(user_id)
     tariff = TARIFFS[sub.tariff]
     
-    # Проверяем лимит каналов
+    # Проверка лимита каналов
     if len(sub.channels) >= tariff["channels"]:
         await update.message.reply_text(
             f"❌ *Лимит каналов достигнут!*\n\n"
             f"📊 Ваш тариф: {tariff['name']}\n"
             f"📢 Максимум каналов: {tariff['channels']}\n\n"
-            f"💡 Используйте команду /menu для просмотра тарифов",
+            f"💡 Используйте /tariffs для просмотра тарифов",
             parse_mode='Markdown'
         )
         context.user_data['awaiting_channel'] = False
@@ -663,9 +623,9 @@ async def handle_channel_add(update: Update, context: ContextTypes.DEFAULT_TYPE)
         chat = update.message.forward_from_chat
         channel_id = str(chat.id)
         channel_name = chat.title
-        logger.info(f"Получен канал из пересылки: {channel_id} - {channel_name}")
+        logger.info(f"Получен пересланный канал: {channel_id} - {channel_name}")
     
-    # Проверяем текст с username
+    # Проверяем текстовый ввод (username)
     elif update.message.text:
         text = update.message.text.strip()
         if text.startswith('@'):
@@ -673,19 +633,19 @@ async def handle_channel_add(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 chat = await context.bot.get_chat(text)
                 channel_id = str(chat.id)
                 channel_name = chat.title
-                logger.info(f"Получен канал по username: {channel_id} - {channel_name}")
+                logger.info(f"Получен username канала: {channel_id} - {channel_name}")
             except Exception as e:
-                logger.error(f"Ошибка получения канала по username: {e}")
+                logger.error(f"Ошибка получения чата по username: {e}")
         
-        elif text.startswith('-100') or text.startswith('100'):
+        elif text.startswith('-100') or text.isdigit():
             try:
                 chat_id = int(text)
                 chat = await context.bot.get_chat(chat_id)
                 channel_id = str(chat.id)
                 channel_name = chat.title
-                logger.info(f"Получен канал по ID: {channel_id} - {channel_name}")
+                logger.info(f"Получен ID канала: {channel_id} - {channel_name}")
             except Exception as e:
-                logger.error(f"Ошибка получения канала по ID: {e}")
+                logger.error(f"Ошибка получения чата по ID: {e}")
     
     if channel_id:
         # Проверяем, есть ли уже такой канал
@@ -696,9 +656,29 @@ async def handle_channel_add(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 break
         
         if not exists:
+            # Проверяем, добавлен ли бот в канал
+            try:
+                bot_member = await context.bot.get_chat_member(chat_id=int(channel_id), user_id=context.bot.id)
+                if bot_member.status not in ['administrator', 'creator']:
+                    await update.message.reply_text(
+                        "⚠️ *Бот не является администратором канала!*\n\n"
+                        "Пожалуйста, добавьте бота в канал как АДМИНИСТРАТОРА\n"
+                        "и попробуйте снова.",
+                        parse_mode='Markdown'
+                    )
+                    return
+            except Exception as e:
+                logger.error(f"Ошибка проверки прав бота: {e}")
+                await update.message.reply_text(
+                    "⚠️ *Не удалось проверить права бота*\n\n"
+                    "Убедитесь, что бот добавлен в канал как администратор.",
+                    parse_mode='Markdown'
+                )
+                return
+            
             sub.channels.append({
                 "id": channel_id,
-                "name": channel_name or "Канал"
+                "name": channel_name
             })
             bot.save_data()
             
@@ -706,30 +686,29 @@ async def handle_channel_add(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 f"━━━━━━━━━━━━━━━━━━━━━\n"
                 f"✅ *КАНАЛ ДОБАВЛЕН!*\n"
                 f"━━━━━━━━━━━━━━━━━━━━━\n\n"
-                f"📢 *Название:* {channel_name or 'Канал'}\n"
+                f"📢 *Название:* {channel_name}\n"
                 f"🆔 *ID:* `{channel_id}`\n\n"
-                f"🎯 *Что дальше?*\n\n"
-                f"• Нажмите *«Настройка автопостинга»* в меню\n"
-                f"• Выберите этот канал\n"
-                f"• Настройте тему, размер и интервал\n\n"
-                f"✨ *Все функции БЕСПЛАТНЫ!*\n\n"
+                f"📊 *Ваши каналы:* {len(sub.channels)}/{tariff['channels']}\n\n"
+                f"🎯 *Что дальше?*\n"
+                f"• Нажмите *«Настройка автопостинга»*\n"
+                f"• Выберите тему и размер постов\n"
+                f"• Установите интервал публикации\n\n"
                 f"━━━━━━━━━━━━━━━━━━━━━",
                 parse_mode='Markdown'
             )
         else:
             await update.message.reply_text(
                 "❌ *Этот канал уже добавлен!*\n\n"
-                "Используйте /menu для управления",
+                "Используйте /my_channels для просмотра",
                 parse_mode='Markdown'
             )
     else:
         await update.message.reply_text(
             "❌ *Не удалось определить канал*\n\n"
-            "📌 *Попробуйте снова:*\n\n"
-            "• Перешлите ЛЮБОЕ сообщение ИЗ канала\n"
-            "• Или отправьте username канала (с @)\n"
-            "• Или отправьте ID канала (например -100123456789)\n\n"
-            "💡 *Убедитесь, что бот добавлен в канал как администратор!*",
+            "Попробуйте один из способов:\n\n"
+            "1️⃣ *Перешлите сообщение* из канала\n"
+            "2️⃣ *Отправьте username* канала (с @)\n"
+            "3️⃣ *Отправьте ID* канала (число)",
             parse_mode='Markdown'
         )
         return
@@ -749,13 +728,10 @@ async def auto_posting_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if not sub.channels:
         text += "❌ *У вас нет добавленных каналов!*\n\n"
-        text += "📢 Сначала добавьте канал через\n"
-        text += "«📢 Добавить канал» в главном меню\n\n"
-        text += "━━━━━━━━━━━━━━━━━━━━━"
+        text += "Сначала добавьте канал через\n"
+        text += "«📢 Добавить канал» в главном меню\n"
         await query.edit_message_text(text, parse_mode='Markdown')
         return
-    
-    text += "👇 *Выберите канал для настройки:*\n\n"
     
     keyboard = []
     for ch in sub.channels:
@@ -768,7 +744,7 @@ async def auto_posting_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard.append([InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu")])
     
     await query.edit_message_text(
-        text,
+        text + "\n👇 *Выберите канал для настройки:*",
         parse_mode='Markdown',
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
@@ -781,7 +757,6 @@ async def configure_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     sub = bot.get_user_subscription(user_id)
     
-    # Находим имя канала
     channel_name = "Канал"
     for ch in sub.channels:
         if ch.get('id') == channel_id:
@@ -979,13 +954,10 @@ async def handle_interval_selection(update: Update, context: ContextTypes.DEFAUL
     sub = bot.get_user_subscription(user_id)
     tariff = TARIFFS[sub.tariff]
     
-    # Проверяем минимальный интервал для тарифа
     if interval < tariff["interval_min"]:
         await query.edit_message_text(
             f"❌ *Минимальный интервал для вашего тарифа: {tariff['interval_min']} сек*\n\n"
-            f"📊 Ваш тариф: {tariff['name']}\n"
-            f"⏱ Максимальная частота: раз в {tariff['interval_min']} сек\n\n"
-            f"Выберите интервал побольше:",
+            f"Выберите больший интервал",
             parse_mode='Markdown',
             reply_markup=await get_intervals_keyboard()
         )
@@ -1002,7 +974,6 @@ async def handle_interval_selection(update: Update, context: ContextTypes.DEFAUL
     else:
         sub.auto_posts[channel_id].interval_seconds = interval
     
-    # Включаем автопостинг
     sub.auto_posts[channel_id].is_active = True
     sub.auto_posts[channel_id].last_post = time.time()
     
@@ -1032,6 +1003,47 @@ async def handle_interval_selection(update: Update, context: ContextTypes.DEFAUL
         f"━━━━━━━━━━━━━━━━━━━━━",
         parse_mode='Markdown'
     )
+
+async def start_auto_posting(context: ContextTypes.DEFAULT_TYPE, user_id: int, channel_id: str):
+    """Запуск автопостинга для канала"""
+    sub = bot.get_user_subscription(user_id)
+    
+    if channel_id not in sub.auto_posts:
+        return
+    
+    config = sub.auto_posts[channel_id]
+    if not config.is_active or config.job_running:
+        return
+    
+    config.job_running = True
+    
+    async def post_loop():
+        while config.is_active and channel_id in sub.auto_posts:
+            try:
+                current_time = time.time()
+                time_since_last = current_time - config.last_post
+                
+                if time_since_last >= config.interval_seconds:
+                    if sub.can_post():
+                        success = await bot.format_and_send_post(
+                            context, channel_id, config.theme, config.size, is_auto=True
+                        )
+                        if success:
+                            config.last_post = current_time
+                            sub.add_post()
+                            bot.save_data()
+                            logger.info(f"🔄 Автопостинг: канал {channel_id}")
+                    else:
+                        logger.warning(f"⚠️ Лимит постов для {user_id}")
+                
+                await asyncio.sleep(min(config.interval_seconds, 30))
+                
+            except Exception as e:
+                logger.error(f"Ошибка автопостинга: {e}")
+                await asyncio.sleep(60)
+    
+    task = asyncio.create_task(post_loop())
+    bot.active_jobs[f"{user_id}_{channel_id}"] = task
 
 async def start_auto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1073,7 +1085,6 @@ async def delete_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sub = bot.get_user_subscription(user_id)
     
     if channel_id in sub.auto_posts:
-        # Останавливаем задачу
         job_key = f"{user_id}_{channel_id}"
         if job_key in bot.active_jobs:
             bot.active_jobs[job_key].cancel()
@@ -1087,6 +1098,8 @@ async def delete_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def random_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    await query.answer()
+    
     user_id = query.from_user.id
     sub = bot.get_user_subscription(user_id)
     
@@ -1102,8 +1115,7 @@ async def random_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
         remaining = TARIFFS[sub.tariff]["posts_per_day"] - sub.posts_today
         await query.edit_message_text(
             f"⚠️ *Лимит постов на сегодня исчерпан!*\n\n"
-            f"📊 Осталось: 0/{TARIFFS[sub.tariff]['posts_per_day']}\n"
-            f"🔄 Лимит обновится через 24 часа",
+            f"📊 Осталось: 0/{TARIFFS[sub.tariff]['posts_per_day']}",
             parse_mode='Markdown'
         )
         return
@@ -1124,8 +1136,7 @@ async def random_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if success:
         await query.edit_message_text(
             f"✅ *Пост успешно опубликован!*\n\n"
-            f"📊 Осталось постов сегодня: {sub.get_remaining_posts() - 1}\n"
-            f"🎯 Используйте /menu для других действий",
+            f"📊 Осталось постов сегодня: {sub.get_remaining_posts() - 1}",
             parse_mode='Markdown'
         )
     else:
@@ -1149,7 +1160,7 @@ async def my_channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         for i, ch in enumerate(sub.channels, 1):
             text += f"{i}. 📢 *{ch.get('name', 'Канал')}*\n"
-            text += f"   🆔 `{ch.get('id')}`\n"
+            text += f"   🆔 `{ch.get('id', 'ID')}`\n"
             
             if ch.get('id') in sub.auto_posts:
                 cfg = sub.auto_posts[ch['id']]
@@ -1180,18 +1191,17 @@ async def my_channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = []
     for ch in sub.channels:
         keyboard.append([InlineKeyboardButton(
-            f"⚙️ Настроить {ch.get('name', 'Канал')[:20]}",
+            f"⚙️ {ch.get('name', 'Канал')[:25]}",
             callback_data=f"config_channel_{ch['id']}"
         )])
     keyboard.append([InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu")])
     
     await query.edit_message_text(
-        text,
-        parse_mode='Markdown',
+        text, parse_mode='Markdown',
         reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None
     )
 
-async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
@@ -1219,7 +1229,7 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ━━━━━━━━━━━━━━━━━━━━━
 📝 *ПОСТЫ*
 📊 Сегодня: {sub.posts_today}/{tariff['posts_per_day']}
-⏳ Осталось: {remaining}
+⏳ Осталось: {remaining if remaining > 0 else 0}
 🔄 Сброс через: {reset_hours}ч {reset_minutes}мин
 
 ━━━━━━━━━━━━━━━━━━━━━
@@ -1236,7 +1246,7 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu")]]
     await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
 
-async def tariffs_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def tariffs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
@@ -1248,25 +1258,25 @@ async def tariffs_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ├ 📢 Каналов: 1
 ├ 📝 Постов/день: 50
 ├ ⏱ Мин. интервал: 10 сек
-└ 🎨 Все функции: Да
+└ 🎨 Картинки: Да
 
 ⭐ *СТАНДАРТ* - 0₽  
 ├ 📢 Каналов: 5
 ├ 📝 Постов/день: 200
 ├ ⏱ Мин. интервал: 5 сек
-└ 🎨 Все функции: Да
+└ 🎨 Картинки: Да
 
 💎 *ПРОФЕССИОНАЛЬНЫЙ* - 0₽
 ├ 📢 Каналов: 20
 ├ 📝 Постов/день: 500
 ├ ⏱ Мин. интервал: 3 сек
-└ 🎨 Все функции: Да
+└ 🎨 Картинки: Да
 
 👑 *ПРЕМИУМ* - 0₽
 ├ 📢 Каналов: 100
 ├ 📝 Постов/день: 2000
 ├ ⏱ Мин. интервал: 1 сек
-└ 🎨 Все функции: Да
+└ 🎨 Картинки: Да
 
 ━━━━━━━━━━━━━━━━━━━━━
 ✨ *ВСЕ ФУНКЦИИ ДОСТУПНЫ!*
@@ -1315,9 +1325,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • Проверяйте статистику
 • Все тарифы БЕСПЛАТНЫЕ!
 
-━━━━━━━━━━━━━━━━━━━━━
-❓ *Вопросы:* Напишите @support
-
 ━━━━━━━━━━━━━━━━━━━━━"""
     
     keyboard = [[InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu")]]
@@ -1344,10 +1351,8 @@ async def handle_custom_interval(update: Update, context: ContextTypes.DEFAULT_T
         tariff = TARIFFS[sub.tariff]
         if interval < tariff["interval_min"]:
             await update.message.reply_text(
-                f"❌ *Минимальный интервал для вашего тарифа: {tariff['interval_min']} сек*\n\n"
-                f"📊 Ваш тариф: {tariff['name']}\n"
-                f"⏱ Максимальная частота: раз в {tariff['interval_min']} сек\n\n"
-                f"Пожалуйста, введите интервал не менее {tariff['interval_min']} секунд:",
+                f"❌ Минимальный интервал для вашего тарифа: {tariff['interval_min']} сек\n"
+                f"Установите больший интервал",
                 parse_mode='Markdown'
             )
             return
@@ -1401,81 +1406,58 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='Markdown',
             reply_markup=keyboard
         )
-    
     elif data == "add_channel":
         await add_channel_start(update, context)
-    
     elif data == "auto_posting":
         await auto_posting_menu(update, context)
-    
     elif data == "select_theme":
         await query.edit_message_text(
             "🎨 *Выберите тему:*\n\nТема влияет на содержание постов",
             parse_mode='Markdown',
             reply_markup=await get_themes_keyboard()
         )
-    
     elif data == "select_size":
         await query.edit_message_text(
             "📏 *Выберите размер поста:*\n\nРазмер влияет на длину текста",
             parse_mode='Markdown',
             reply_markup=await get_sizes_keyboard()
         )
-    
     elif data == "random_post":
         await random_post(update, context)
-    
     elif data == "stats":
-        await stats_command(update, context)
-    
+        await stats(update, context)
     elif data == "my_channels":
         await my_channels(update, context)
-    
     elif data == "tariffs":
-        await tariffs_command(update, context)
-    
+        await tariffs(update, context)
     elif data == "help":
         await help_command(update, context)
-    
     elif data.startswith("themes_page_"):
         page = int(data.split("_")[2])
         keyboard = await get_themes_keyboard(page)
         await query.edit_message_reply_markup(reply_markup=keyboard)
-    
     elif data.startswith("theme_") and not data.startswith("themes_page_"):
         await handle_theme_selection(update, context)
-    
     elif data.startswith("size_"):
         await handle_size_selection(update, context)
-    
     elif data.startswith("interval_"):
         await handle_interval_selection(update, context)
-    
     elif data == "custom_interval":
         await handle_interval_selection(update, context)
-    
     elif data.startswith("config_channel_"):
         await configure_channel(update, context)
-    
     elif data.startswith("set_theme_"):
         await set_channel_theme(update, context)
-    
     elif data.startswith("set_size_"):
         await set_channel_size(update, context)
-    
     elif data.startswith("set_interval_"):
         await set_channel_interval(update, context)
-    
     elif data.startswith("start_auto_"):
         await start_auto(update, context)
-    
     elif data.startswith("stop_auto_"):
         await stop_auto(update, context)
-    
     elif data.startswith("delete_config_"):
         await delete_config(update, context)
-    
-    await query.answer()
 
 # ==================== ЗАПУСК ====================
 def main():
@@ -1484,16 +1466,16 @@ def main():
     application = Application.builder().token(TELEGRAM_TOKEN).build()
     
     # Команды
-    application.add_handler(CommandHandler("start", start_command))
-    application.add_handler(CommandHandler("menu", start_command))
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("menu", start))
     
     # Callback обработчик
     application.add_handler(CallbackQueryHandler(handle_callback))
     
-    # Обработчики сообщений (важен порядок!)
+    # Обработчики сообщений (ВАЖНО: порядок имеет значение!)
+    application.add_handler(MessageHandler(filters.FORWARDED, handle_channel_message))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_channel_message))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_custom_interval))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_channel_add))
-    application.add_handler(MessageHandler(filters.FORWARDED, handle_channel_add))
     
     logger.info("🚀 Бот автопостинга запущен!")
     logger.info(f"📊 Доступно тем: {len(POSTING_THEMES)}")
