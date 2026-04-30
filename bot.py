@@ -29,7 +29,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ==================== КОНФИГУРАЦИЯ ====================
-TELEGRAM_TOKEN = "8359617420:AAEh9jNsRtQ2F3jshJ0rgBWMIAH2MHdvCxc"
+TELEGRAM_TOKEN = "8359617420:AAGoVnqE31PM7RDaIJ3j4xxwPFBsM6I6Tg8"
 
 # ==================== GIGACHAT API НАСТРОЙКИ ====================
 CLIENT_ID = "019d2a4f-ea83-7eb6-81ae-524740348fc8"
